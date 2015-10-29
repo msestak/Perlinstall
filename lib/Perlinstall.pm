@@ -1,27 +1,21 @@
 #!/usr/bin/env perl
-package MySQLinstall;
+package Perlinstall;
 
-use 5.010001;
+use 5.008001;
 use strict;
 use warnings;
 use File::Spec::Functions qw(:ALL);
 use Carp;
 use Getopt::Long;
 use Pod::Usage;
-use Capture::Tiny qw/capture/;
+use IPC::Open3;
 use Data::Dumper;
-#use Regexp::Debugger;
-use Log::Log4perl;
-use IO::Prompt::Tiny qw/prompt/;
-use File::Find::Rule;
-use Config::Std { def_sep => '=' };   #MySQL uses =
+use Exporter qw/import/;
 
-our $VERSION = "0.01";
+our $VERSION = "0.001";
 
 our @EXPORT_OK = qw{
   run
-  init_logging
-  get_parameters_from_cmd
 
 };
 
@@ -58,45 +52,26 @@ sub run {
     my $PORT     = $param_href->{port};
     my $SOCKET   = $param_href->{socket};
 
-    #start logging for the rest of program (without capturing of parameters)
-    init_logging($verbose);
-    ##########################
-    # ... in some function ...
-    ##########################
-    my $log = Log::Log4perl::get_logger("main");
-
-    # Logs both to Screen and File appender
-    $log->info("This is start of logging for $0");
-    $log->trace("This is example of trace logging for $0");
-
     #get dump of param_href if -v (verbose) flag is on (for debugging)
-    my $dump_print = sprintf( Dumper($param_href) ) if $verbose;
-    $log->debug( '$param_href = ', "$dump_print" ) if $verbose;
+    print '$param_href = ', Dumper($param_href) if $verbose;
 
     #call write modes (different subs that print different jobs)
 	my %dispatch = (
         install_perl             => \&install_perl,                  #using perlenv
-        install_sandbox          => \&install_sandbox,               #and create dirs
-        wget_mysql               => \&wget_mysql,                    #from mysql
-        wget_percona             => \&wget_percona_with_tokudb,      #from percona
-        install_mysql            => \&install_mysql,                 #edit also general options in my.cnf for InnoDB
-        edit_tokudb              => \&edit_tokudb,                   #not implemented
-        edit_deep                => \&edit_deep,                     #edit my.cnf for Deep engine and install it
-        edit_deep_report         => \&edit_deep_report,              #edit my.cnf for Deep engine and install it (with reporting to deep.is)
 
     );
 
     foreach my $mode (@mode) {
         if ( exists $dispatch{$mode} ) {
-            $log->info("RUNNING ACTION for mode: ", $mode);
+            warn "RUNNING ACTION for mode: $mode";
 
             $dispatch{$mode}->( $param_href );
 
-            $log->info("TIME when finished for: $mode");
+            warn "TIME when finished for: $mode";
         }
         else {
             #complain if mode misspelled or just plain wrong
-            $log->logcroak( "Unrecognized mode --mode={$mode} on command line thus aborting");
+            die "Unrecognized mode --mode={$mode} on command line thus aborting";
         }
     }
 
@@ -112,25 +87,6 @@ sub run {
 # Comments   : it starts logger at start
 # See Also   : init_logging()
 sub get_parameters_from_cmd {
-
-    #no logger here
-	# setup config file location
-	my ($volume, $dir_out, $perl_script) = splitpath( $0 );
-	$dir_out = rel2abs($dir_out);
-    my ($app_name) = $perl_script =~ m{\A(.+)\.(?:.+)\z};
-	$app_name = lc $app_name;
-    my $config_file = catfile($volume, $dir_out, $app_name . '.cnf' );
-	$config_file = canonpath($config_file);
-
-	#read config to setup defaults
-	read_config($config_file => my %config);
-	#print 'config:', Dumper(\%config);
-	#push all options into one hash no matter the section
-	my %opts;
-	foreach my $key (keys %config) {
-		%opts = (%opts, %{ $config{$key} });
-	}
-	#say 'opts:', Dumper(\%opts);
 
 	#cli part
 	my @arg_copy = @ARGV;
@@ -169,108 +125,26 @@ sub get_parameters_from_cmd {
 	
 	#if not -q or --quit print all this (else be quiet)
 	if ($cli{quiet} == 0) {
-		print STDERR 'My @ARGV: {', join( "} {", @arg_copy ), '}', "\n";
-		#no warnings 'uninitialized';
-		print STDERR 'Extra options from config: {', join( "} {", %opts), '}', "\n";
+		#print STDERR 'My @ARGV: {', join( "} {", @arg_copy ), '}', "\n";
 	
 		if ($cli{infile}) {
-			say 'My input file: ', canonpath($cli{infile});
+			print 'My input file: ', canonpath($cli{infile}), "\n";
 			$cli{infile} = rel2abs($cli{infile});
 			$cli{infile} = canonpath($cli{infile});
-			say "My absolute input file: $cli{infile}";
+			print "My absolute input file: $cli{infile}\n";
 		}
 		if ($cli{out}) {
-			say 'My output path: ', canonpath($cli{out});
+			print 'My output path: ', canonpath($cli{out}), "\n";
 			$cli{out} = rel2abs($cli{out});
 			$cli{out} = canonpath($cli{out});
-			say "My absolute output path: $cli{out}";
+			print "My absolute output path: $cli{out}\n";
 		}
 	}
 	else {
 		$cli{verbose} = -1;   #and logging is OFF
 	}
 	
-	#insert config values into cli options if cli is not present on command line
-	foreach my $key (keys %cli) {
-		if ( ! defined $cli{$key} ) {
-			$cli{$key} = $opts{$key};
-		}
-	}
-
     return ( \%cli );
-}
-
-
-### INTERNAL UTILITY ###
-# Usage      : init_logging();
-# Purpose    : enables Log::Log4perl log() to Screen and File
-# Returns    : nothing
-# Parameters : doesn't need parameters (logfile is in same directory and same name as script -pl +log
-# Throws     : croaks if it receives parameters
-# Comments   : used to setup a logging framework
-# See Also   : Log::Log4perl at https://metacpan.org/pod/Log::Log4perl
-sub init_logging {
-    croak 'init_logging() needs verbose parameter' unless @_ == 1;
-    my ($verbose) = @_;
-
-    #create log file in same dir where script is running
-	#removes perl script and takes absolute path from rest of path
-	my ($volume,$dir_out,$perl_script) = splitpath( $0 );
-	#say '$dir_out:', $dir_out;
-	$dir_out = rel2abs($dir_out);
-	#say '$dir_out:', $dir_out;
-
-    my ($app_name) = $perl_script =~ m{\A(.+)\.(?:.+)\z};   #takes name of the script and removes .pl or .pm or .t
-    #say '$app_name:', $app_name;
-    my $logfile = catfile( $volume, $dir_out, $app_name . '.log' );    #combines all of above with .log
-	#say '$logfile:', $logfile;
-	$logfile = canonpath($logfile);
-	#say '$logfile:', $logfile;
-
-    #colored output on windows
-    my $osname = $^O;
-    if ( $osname eq 'MSWin32' ) {
-        require Win32::Console::ANSI;                                 #require needs import
-        Win32::Console::ANSI->import();
-    }
-
-    #enable different levels based on verbose flag
-    my $log_level;
-    if    ($verbose == 0)  { $log_level = 'INFO';  }
-    elsif ($verbose == 1)  { $log_level = 'DEBUG'; }
-    elsif ($verbose == 2)  { $log_level = 'TRACE'; }
-    elsif ($verbose == -1) { $log_level = 'OFF';   }
-	else                   { $log_level = 'INFO';  }
-
-    #levels:
-    #TRACE, DEBUG, INFO, WARN, ERROR, FATAL
-    ###############################################################################
-    #                              Log::Log4perl Conf                             #
-    ###############################################################################
-    # Configuration in a string ...
-    my $conf = qq(
-      log4perl.category.main              = $log_level, Logfile, Screen
-     
-      log4perl.appender.Logfile           = Log::Log4perl::Appender::File
-      log4perl.appender.Logfile.Threshold = TRACE
-      log4perl.appender.Logfile.filename  = $logfile
-      log4perl.appender.Logfile.mode      = append
-      log4perl.appender.Logfile.autoflush = 1
-      log4perl.appender.Logfile.umask     = 0022
-      log4perl.appender.Logfile.header_text = INVOCATION:$0 @ARGV
-      log4perl.appender.Logfile.layout    = Log::Log4perl::Layout::PatternLayout
-      log4perl.appender.Logfile.layout.ConversionPattern = [%d{yyyy/MM/dd HH:mm:ss,SSS}]%m%n
-     
-      log4perl.appender.Screen            = Log::Log4perl::Appender::ScreenColoredLevels
-      log4perl.appender.Screen.stderr     = 1
-      log4perl.appender.Screen.layout     = Log::Log4perl::Layout::PatternLayout
-      log4perl.appender.Screen.layout.ConversionPattern  = [%d{yyyy/MM/dd HH:mm:ss,SSS}]%m%n
-    );
-
-    # ... passed as a reference to init()
-    Log::Log4perl::init( \$conf );
-
-    return;
 }
 
 
@@ -283,22 +157,54 @@ sub init_logging {
 # Comments   : second param is verbose flag (default off)
 # See Also   :
 sub capture_output {
-    my $log = Log::Log4perl::get_logger("main");
-    $log->logdie( 'capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
+    croak( 'capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
     my ($cmd, $param_href) = @_;
 
     my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : undef;   #default is silent
-    $log->info(qq|Report: COMMAND is: $cmd|);
+    print "Report: COMMAND is: $cmd\n";
 
-    my ( $stdout, $stderr, $exit ) = capture {
-        system($cmd );
-    };
+	no warnings 'once';
+	my $pid = open3(\*WRITER, \*READER, \*ERROR, $cmd);
+	#if \*ERROR is 0, stderr goes to stdout
+
+	my $stdout = do { local $/; <READER> };
+	my $stderr = do { local $/; <ERROR> };
+	$stdout = '' if !defined $stdout;
+	$stderr = '' if !defined $stderr;
+
+	waitpid( $pid, 0 ) or die "$!\n";
+	my $exit =  $? >> 8;
 
     if ($verbose == 2) {
-        $log->trace( 'STDOUT is: ', "$stdout", "\n", 'STDERR  is: ', "$stderr", "\n", 'EXIT   is: ', "$exit" );
+        print 'STDOUT is: ', "$stdout", "\n", 'STDERR  is: ', "$stderr", "\n", 'EXIT   is: ', "$exit\n";
     }
 
     return  $stdout, $stderr, $exit;
+}
+
+
+### INTERNAL UTILITY ###
+# Usage      : exec_cmd($cmd_git, $param_href);
+# Purpose    : accepts command, executes it and checks for success
+# Returns    : prints info
+# Parameters : ($cmd_to_execute, $param_href)
+# Throws     : 
+# Comments   : second param is verbose flag (default off)
+# See Also   :
+sub exec_cmd {
+	croak( 'exec_cmd() needs a $cmd' ) unless (@_ == 2 or 3);
+    my ($cmd, $param_href, $cmd_info) = @_;
+	if (!defined $cmd_info) {
+		($cmd_info)  = $cmd =~ m/\A(\w+)/;
+	}
+
+    my ($stdout, $stderr, $exit) = capture_output( $cmd, $param_href );
+    if ($exit == 0 ) {
+        print "$cmd_info success!\n";
+    }
+	else {
+        print "$cmd_info failed!\n";
+	}
 }
 
 
@@ -311,22 +217,20 @@ sub capture_output {
 # Comments   : first sub in chain, run only once at start
 # See Also   :
 sub install_perl {
-    my $log = Log::Log4perl::get_logger("main");
-    $log->logcroak ('install_perl() needs a $param_href' ) unless @_ == 1;
+    croak ('install_perl() needs a $param_href' ) unless @_ == 1;
     my ( $param_href ) = @_;
 
     #check perl version
     my $cmd_perl_version = 'perl -v';
     my ($stdout, $stderr, $exit) = capture_output( $cmd_perl_version, $param_href );
     if ($exit == 0) {
-        $log->debug( 'Checking Perl version with perl -v' );
         if ( $stdout =~ m{v(\d+\.(\d+)\.\d+)}g ) {
             my $perl_ver = $1;
             my $ver_num = $2;
-            $log->debug( "We have Perl $perl_ver" );
+            print "We have Perl $perl_ver\n";
 
             #start perlenv install
-            $log->info( 'Checking if we can install plenv' );
+            print "Checking if we can install plenv\n";
             my $cmd_plenv = 'git clone git://github.com/tokuhirom/plenv.git ~/.plenv';
             my ($stdout_env, $stderr_env, $exit_env) = capture_output( $cmd_plenv, $param_href );
             my ($git_missing) = $stderr_env =~ m{(git)};
@@ -334,66 +238,47 @@ sub install_perl {
 
             if ($exit_env != 0 ) {
                 if ( $git_missing ) {
-                    $log->warn( 'Need to install git' );
+                    warn( 'Need to install git' );
                     my $cmd_git = 'sudo yum -y install git';
-                    my ($stdout_git, $stderr_git, $exit_git) = capture_output( $cmd_git, $param_href );
-                    if ($exit_git == 0 ) {
-                        $log->trace( 'git successfully installed' );
-                    }
-					else {
-                        $log->trace( 'git installation failed' );
-					}
+					exec_cmd($cmd_git, $param_href);
 
 					#if git is missing other tools are missing too
                     my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
-					my ($stdout_tools, $stderr_tools, $exit_tools) = capture_output( $cmd_tools, $param_href );
-                    if ($exit_tools == 0 ) {
-                        $log->trace( 'Development tools successfully installed' );
-                    }
-					else {
-                        $log->trace( 'Development tools installation failed' );
-					}
+					exec_cmd($cmd_tools, $param_href);
 
-                    system $cmd_tools;
                 }
                 elsif ( $plenv_exist ) {
-                    $log->warn( "plenv already installed: $stderr_env" );
+                    warn( "plenv already installed: $stderr_env" );
                 }
             }
             else {
-                $log->trace( 'Installed plenv' );
+                print "Installed plenv\n";
                 
                 #updating .bash_profile for plenv to work
                 my $cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
                 my $cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
                 my $cmd_exec = q{source $HOME/.bash_profile};
-                system ($cmd_path);
-                system ($cmd_eval);
-                system ($cmd_exec);
-                $log->trace( 'Updated $PATH variable and initiliazed plenv' );
+                exec_cmd ($cmd_path, $param_href, 'export PATH');
+                exec_cmd ($cmd_eval, $param_href, 'plenv init');
+                exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
+                print "Updated \$PATH variable and initiliazed plenv\n";
                 
                 #installing Perl-Build plugin for install function in plenv
-                my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
-                my ($stdout_bp, $stderr_bp, $exit_bp) = capture_output( $cmd_perl_build, $param_href );
-                if ($exit_bp == 0) {
-                    $log->trace( 'Installed Perl-Build plugin for plenv from github' );
-                }
-				else {
-                    $log->trace( 'Perl-Build installation failed' );
-				}
+				my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
+                exec_cmd ($cmd_exec, $param_href, 'Perl-Build install');
 			}
 
             #list all perls available
             my $cmd_list_perls = q{plenv install --list};
             my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
-            my @perls = split("\n", $stdout_list);
-            say $stdout_list;
+			#print "$stdout_list\n";
             
             #ask to choose which Perl to install
-            my $perl_to_install = prompt ('Choose which Perl version you want to install (default 5.22.0) >', '5.22.0');
-            my @thread_options = qw/usethreads nothreads/;
-            my $thread_option = prompt ('Do you want to install Perl with or without threads? (default nothreads) >', 'nothreads');
-            $log->info( "Installing $perl_to_install with $thread_option" );
+            my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
+            my $thread_options = 'usethreads nothreads';
+			print "$thread_options\n";
+            my $thread_option = prompt ('Do you want to install Perl with or without threads?>', 'nothreads');
+            print "Installing $perl_to_install with $thread_option\n";
 
             #install Perl
             my $cmd_install;
@@ -404,46 +289,78 @@ sub install_perl {
                 $cmd_install = qq{plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install};
             }
             my ($stdout_ins, $stderr_ins, $exit_ins) = capture_output( $cmd_install, $param_href );
-            if ($exit_ins == 0) {
-                $log->trace( "Perl $perl_to_install installed successfully!" );
-            }
-			else {
-                $log->trace( "Perl $perl_to_install failed" );
-			}
+            exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
 
             #finish installation, set perl as global
             my $cmd_rehash = q{plenv rehash};
             my $cmd_global = qq{plenv global $perl_to_install};
             my $cmd_cpanm = q{plenv install-cpanm};
             #my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
-            system ($cmd_rehash);
-            system ($cmd_global);
-            my ($stdout_cp, $stderr_cp, $exit_cp) = capture_output( $cmd_cpanm, $param_href );
-            if ($exit_cp == 0) {
-                $log->trace( "Perl $perl_to_install is now global and cpanm installed" );
-            }
-			else {
-                $log->trace( 'cpanm installation failed' );
-			}
+            exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+            exec_cmd ($cmd_global, $param_href, "Perl set to global");
+            exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
 
-            #check if right Perl installed
-            my ($stdout_ver, $stderr_ver, $exit_ver) = capture_output( $cmd_perl_version, $param_href );
-            if ($exit_ver == 0) {
-                $log->debug( 'Checking Perl version after install' );
+           #check if right Perl installed
+           my ($stdout_ver, $stderr_ver, $exit_ver) = capture_output( $cmd_perl_version, $param_href );
+           if ($exit_ver == 0) {
                 if ( $stdout_ver =~ m{v(\d+\.(\d+)\.\d+)}g ) {
                     my $perl_ver2 = $1;
-                    $log->info( "We have Perl $perl_ver2 " );
+                    print "We have Perl $perl_ver2\n";
                 }
             }
         }
     }
     else {
-        $log->logcarp( 'Got lost checking Perl version' );
+        carp( 'Got lost checking Perl version' );
     }
 
     return;
 }
 
+# Copied from ExtUtils::MakeMaker (by many authors)
+sub prompt {
+    my ( $mess, $def ) = @_;
+    Carp::croak("prompt function called without an argument")
+      unless defined $mess;
+
+    my $dispdef = defined $def ? "[$def] " : " ";
+    $def = defined $def ? $def : "";
+
+    local $| = 1;
+    local $\;
+    print "$mess $dispdef";
+
+    my $ans;
+    if ( $ENV{PERL_MM_USE_DEFAULT} || !_is_interactive() ) {
+        print "$def\n";
+    }
+    else {
+        $ans = <STDIN>;
+        if ( defined $ans ) {
+            chomp $ans;
+        }
+        else { # user hit ctrl-D
+            print "\n";
+        }
+    }
+
+    return ( !defined $ans || $ans eq '' ) ? $def : $ans;
+}
+
+# Copied (without comments) from IO::Interactive::Tiny by Daniel Muey,
+# based on IO::Interactive by Damian Conway and brian d foy
+sub _is_interactive {
+    my ($out_handle) = ( @_, select );
+    return 0 if not -t $out_handle;
+    if ( tied(*ARGV) or defined( fileno(ARGV) ) ) {
+        return -t *STDIN if defined $ARGV && $ARGV eq '-';
+        return @ARGV > 0 && $ARGV[0] eq '-' && -t *STDIN if eof *ARGV;
+        return -t *ARGV;
+    }
+    else {
+        return -t *STDIN;
+    }
+}
 
 1;
 __END__
