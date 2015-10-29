@@ -240,32 +240,49 @@ sub install_perl {
                 if ( $git_missing ) {
                     warn( 'Need to install git' );
                     my $cmd_git = 'sudo yum -y install git';
-					exec_cmd($cmd_git, $param_href);
+					exec_cmd($cmd_git, $param_href, 'git install');
 
 					#if git is missing other tools are missing too
                     my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
-					exec_cmd($cmd_tools, $param_href);
+					exec_cmd($cmd_tools, $param_href, 'Development tools install');
 
-                }
-                elsif ( $plenv_exist ) {
-                    warn( "plenv already installed: $stderr_env" );
-                }
+					#install plenv
+					exec_cmd($cmd_plenv, $param_href, 'plenv install');
+				}
+
+				elsif ( $plenv_exist ) {
+					warn( "plenv already installed: $stderr_env" );
+
+					#installing Perl-Build plugin for install function in plenv
+					my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
+					exec_cmd ($cmd_perl_build, $param_href, 'Perl-Build install');
+				}
             }
+
             else {
                 print "Installed plenv\n";
+				my $bash_profile = "$ENV{HOME}/.bash_profile";
+				open my $fh, "<", $bash_profile or die "can't open $bash_profile:$!";
+				my $prof = do {local$/; <$fh>};
+				(my $plenv_match) = $prof =~ m/plenv/;
                 
-                #updating .bash_profile for plenv to work
-                my $cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
-                my $cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
-                my $cmd_exec = q{source $HOME/.bash_profile};
-                exec_cmd ($cmd_path, $param_href, 'export PATH');
-                exec_cmd ($cmd_eval, $param_href, 'plenv init');
-                exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
-                print "Updated \$PATH variable and initiliazed plenv\n";
+				if (!defined $plenv_match) {
+					#updating .bash_profile for plenv to work
+                	my $cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
+                	my $cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
+                	my $cmd_exec = q{source $HOME/.bash_profile};
+                	exec_cmd ($cmd_path, $param_href, 'export PATH');
+                	exec_cmd ($cmd_eval, $param_href, 'plenv init');
+                	exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
+                	print "Updated \$PATH variable and initiliazed plenv\n";
+				}
+				else {
+					warn "$bash_profile already set for plenv";
+				}
                 
                 #installing Perl-Build plugin for install function in plenv
 				my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
-                exec_cmd ($cmd_exec, $param_href, 'Perl-Build install');
+                exec_cmd ($cmd_perl_build, $param_href, 'Perl-Build install');
 			}
 
             #list all perls available
