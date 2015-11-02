@@ -224,6 +224,7 @@ sub install_perl {
     my ( $param_href ) = @_;
     my $sudo    = $param_href->{sudo};
     my $verbose = $param_href->{verbose};
+	my $shell = $ENV{SHELL};   #to be used in commands
 
 	if ($sudo) {
 		print "Working with sudo permissions!!!\n";
@@ -240,7 +241,7 @@ sub install_perl {
 		else                             { 'yum' }
 	};
 
-	print "$installer\n";
+	#print "$installer\n";
 
 	#install git, Development tools
     my $cmd_check_git = 'git --version';
@@ -369,11 +370,15 @@ sub install_perl {
 		if ($pid == 0) {
 			#child
 			#checking if sourcing plenv worked
-			my $cmd_plenv_ver2 = q{bash -lc "plenv --version"};
+			my $cmd_plenv_ver2 = q{$SHELL -lc "plenv --version"};
 			my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver2, $param_href );
 			if ($exit_plenv_ver2 == 0) {
 				print "We have sourced $stdout_plenv_ver2\n";
 				$plenv_source_flag = 1;
+
+				#print 'executing exec $SHELL -l', "\n";
+				#exec "\$SHELL -l" or print STDERR "couldn't exec foo: $!\n";
+
 				exit 0;
 			}
 			else {
@@ -390,68 +395,87 @@ sub install_perl {
 		print "$bash_profile already set for plenv\n";
 	}
 
-
-    #list all perls available (on verbose only)
-	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
-		my $cmd_list_perls = q{plenv install --list};
-		my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
-		if ($verbose == 1) {
-			print "$stdout_list\n";
-		}
+	#install Perl in a fork (to use restarted shell)
+	my $pid2 = fork;
+	if (!defined $pid2) {
+		die "couldn't fork!";
 	}
-    
-    #ask to choose which Perl to install
-	my $perl_install_flag = 0;
-	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
-		my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
-		my $thread_options = 'usethreads nothreads';
-		print "Thread options are: $thread_options\n";
-		my $thread_option = prompt ('Do you want to install Perl with or without threads?>', 'nothreads');
-		print "Installing $perl_to_install with $thread_option\n";
-
-		#install Perl
-		my $cmd_install;
-		if ($thread_option eq 'nothreads') {
-			$cmd_install = qq{plenv install -j 8 -Dcc=gcc $perl_to_install};
-		}
-		else {
-			$cmd_install = qq{plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install};
-		}
-		exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
-	
-		#finish installation, set perl as global
-		my $cmd_rehash = q{plenv rehash};
-		my $cmd_global = qq{plenv global $perl_to_install};
-		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-		exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global");
-
-		$perl_install_flag = 1;
-	}
-
-	#check if right Perl installed
-	if ($perl_install_flag == 1) {
-		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver, $param_href );
-		if ($exit_ver2 == 0) {
-			if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
-				my $perl_ver2 = $1;
-				print "We have Perl $perl_ver2\n";
+	if ($pid2 == 0) {
+		#child
+	    #list all perls available (on verbose only)
+		if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+			my $cmd_list_perls = q{$SHELL -lc "plenv install --list"};
+			my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
+			if ($verbose == 1) {
+				print "$stdout_list\n";
 			}
 		}
+	    
+	    #ask to choose which Perl to install
+		my $perl_install_flag = 0;
+		if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+			my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
+			my $thread_options = 'usethreads nothreads';
+			print "Thread options are: $thread_options\n";
+			my $thread_option = prompt ('Do you want to install Perl with or without threads?>', 'nothreads');
+			print "Installing $perl_to_install with $thread_option\n";
+	
+			#install Perl
+			my $cmd_install;
+			if ($thread_option eq 'nothreads') {
+				$cmd_install = qq{plenv install -j 8 -Dcc=gcc $perl_to_install};
+			}
+			else {
+				$cmd_install = qq{plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install};
+			}
+			exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
+		
+			#finish installation, set perl as global
+			my $cmd_rehash = q{plenv rehash};
+			my $cmd_global = qq{plenv global $perl_to_install};
+			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global");
+	
+			$perl_install_flag = 1;
+		}
+	
+		#check if right Perl installed
+		if ($perl_install_flag == 1) {
+			my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver, $param_href );
+			if ($exit_ver2 == 0) {
+				if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
+					my $perl_ver2 = $1;
+					print "We have Perl $perl_ver2\n";
+				}
+			}
+		}
+	
+		#install cpanm to installed perl
+		if ($perl_install_flag == 1) {
+			my $cmd_cpanm = q{plenv install-cpanm};
+			exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
+			if ($sudo == 1) {
+				my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
+				exec_cmd ($cmd_lib, $param_href, "local lib setup");
+				
+			}
+			else {
+				print "Please setup you local lib with sudo permissions:\nsudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)\n";
+			}
+		}
+
+		#end of child
+		exit 0;
+	}
+	else {
+		#parent
+		print "in parent $$, waiting for child:$pid2\n";
+		waitpid($pid2, 0);
 	}
 
-	#install cpanm to installed perl
-	if ($perl_install_flag == 1) {
-		my $cmd_cpanm = q{plenv install-cpanm};
-		exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
-		if ($sudo == 1) {
-			my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
-			exec_cmd ($cmd_lib, $param_href, "local lib setup");
-		}
-		else {
-			print "Please setup you local lib with sudo permissions:\nsudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)\n";
-		}
-	}
-
+	#restarting shell to see new perl
+	print "Restarting shell ...\n";
+	my $cmd_shell = exec "source $bash_profile";
 
     return;
 }
