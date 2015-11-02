@@ -39,6 +39,7 @@ sub run {
     #preparation of parameters
     my $verbose    = $param_href->{verbose};
     my $quiet      = $param_href->{quiet};
+    my $sudo      = $param_href->{sudo};
     my @mode     = @{ $param_href->{mode} };
 	my $URL      = $param_href->{url};
 	my $OPT      = $param_href->{opt};
@@ -91,8 +92,9 @@ sub get_parameters_from_cmd {
 	#cli part
 	my @arg_copy = @ARGV;
 	my (%cli, @mode);
-	$cli{quiet} = 0;
+	$cli{quiet}   = 0;
 	$cli{verbose} = 0;
+	$cli{sudo}    = 0;
 
 	#mode, quiet and verbose can only be set on command line
     GetOptions(
@@ -113,6 +115,7 @@ sub get_parameters_from_cmd {
         'mode|mo=s{1,}' => \$cli{mode},       #accepts 1 or more arguments
         'quiet|q'       => \$cli{quiet},      #flag
         'verbose+'      => \$cli{verbose},    #flag
+        'sudo'          => \$cli{sudo},       #flag
     ) or pod2usage( -verbose => 1 );
 
 	#you can specify multiple modes at the same time
@@ -161,7 +164,7 @@ sub capture_output {
     my ($cmd, $param_href) = @_;
 
     my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : undef;   #default is silent
-    print "Report: COMMAND is: $cmd\n";
+    print "Report: COMMAND is: $cmd\n" if $verbose;
 
 	no warnings 'once';
 	my $pid = open3(\*WRITER, \*READER, \*ERROR, $cmd);
@@ -219,6 +222,228 @@ sub exec_cmd {
 sub install_perl {
     croak ('install_perl() needs a $param_href' ) unless @_ == 1;
     my ( $param_href ) = @_;
+    my $sudo    = $param_href->{sudo};
+    my $verbose = $param_href->{verbose};
+
+	if ($sudo) {
+		print "Working with sudo permissions!!!\n";
+	}
+	else {
+		print "Working without sudo:(\n";
+	}
+
+	#install prerequisites for plenv
+	my $installer = do {
+		if    (-e '/etc/debian_version') { 'apt-get' }
+		elsif (-e '/etc/centos-release') { 'yum' }
+		elsif (-e '/etc/redhat-release') { 'yum' }
+		else                             { 'yum' }
+	};
+
+	print "$installer\n";
+
+	#install git, Development tools
+    my $cmd_check_git = 'git --version';
+    my ($stdout_check_git, $stderr_check_git, $exit_check_git) = capture_output( $cmd_check_git, $param_href );
+	if ($exit_check_git == 0) {
+		print "Great. You have git. Continuing with plenv install.\n";
+	}
+	else {
+		#we are on CentOS or Redhat linux and have sudo
+		if ( ($sudo == 1) and ($installer eq 'yum') ) {
+			my $cmd_git = "sudo $installer -y install git";
+			exec_cmd($cmd_git, $param_href, 'git install');
+
+			my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
+			exec_cmd($cmd_tools, $param_href, 'Development tools install');
+		}
+		elsif ( ($sudo == 1) and ($installer eq 'apt-get') ) {
+			my $cmd_git = "sudo $installer -y install git";
+			exec_cmd($cmd_git, $param_href, 'git install');
+
+			my $cmd_tools = q{sudo apt-get install build-essential};
+			exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
+		}
+		else {
+			die "git missing. You should first install git or try again with --sudo option if you have sudo permissions :)";
+		}
+	}
+
+    #check perl version
+    my $cmd_perl_ver = 'perl -v';
+    my ($stdout_perl_ver, $stderr_perl_ver, $exit_perl_ver) = capture_output( $cmd_perl_ver, $param_href );
+    if ($exit_perl_ver == 0) {
+        if ( $stdout_perl_ver =~ m{v(\d+\.(\d+)\.\d+)}g ) {
+            my $perl_ver = $1;
+            my $ver_num = $2;
+            print "We have Perl $perl_ver\n";
+		}
+		else {
+			print "Couldn't find Perl version\n";
+		}
+	}
+	else {
+		print "Strange. Perl is not installed. No problem we will fix that in a moment\n";
+	}
+
+	#check if plenv installed
+	my $plenv_flag = 0;
+    my $cmd_plenv_ver = 'plenv --version';
+    my ($stdout_plenv_ver, $stderr_plenv_ver, $exit_plenv_ver) = capture_output( $cmd_plenv_ver, $param_href );
+    if ($exit_plenv_ver == 0) {
+        print "We have $stdout_plenv_ver\n";
+		$plenv_flag = 1;
+	}
+	else {
+		print "plenv is not installed.\n";
+	}
+
+    #start perlenv install
+	if ($plenv_flag == 0) {
+	    my $cmd_plenv = 'git clone git://github.com/tokuhirom/plenv.git ~/.plenv';
+		exec_cmd($cmd_plenv, $param_href, 'plenv install');
+		$plenv_flag = 1;
+	}
+
+	#check if Perl-Build plugin for plenv installed
+	my $perl_build_flag = 0;
+	my $perl_build_dir = catdir("$ENV{HOME}", '/.plenv/plugins/perl-build');
+	print "$perl_build_dir\n";
+	if (-d $perl_build_dir and -s $perl_build_dir) {
+		$perl_build_flag = 1;
+		print "Perl-Build is installed\n";
+	}
+	else {
+		print "Perl-Build is not installed\n";
+	}
+
+	#installing Perl-Build plugin for install function in plenv
+	if ( ($plenv_flag == 1) and ($perl_build_flag == 0) ) {
+		my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
+		exec_cmd($cmd_perl_build, $param_href, 'Perl-Build install');
+	}
+
+	
+	#checking if plenv settings in place
+	my $bash_profile;
+	if ($installer eq 'yum') {   #on CentOS
+		$bash_profile = catfile("$ENV{HOME}", '.bash_profile');
+	}
+	else {   #on Ubuntu
+		$bash_profile = catfile("$ENV{HOME}", '.profile');
+	}
+
+	open my $fh, "<", $bash_profile or die "can't open $bash_profile:$!";
+	my $prof = do {local$/; <$fh>};
+	(my $plenv_match) = $prof =~ m/plenv/;
+    
+	#updating .bash_profile for plenv to work
+	my $plenv_source_flag = 0;
+	if (!defined $plenv_match) {
+		my ($cmd_path, $cmd_eval, $cmd_exec);
+		if ($installer eq 'yum') {   #on CentOS
+			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
+			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
+			#$cmd_exec = q{source $HOME/.bash_profile};
+			$cmd_exec = q{exec $SHELL -l};
+		}
+		else {   #on Ubuntu
+			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.profile};
+			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.profile};
+			#$cmd_exec = q{source $HOME/.profile};
+			$cmd_exec = q{exec $SHELL -l};
+		}
+
+    	exec_cmd ($cmd_path, $param_href, 'export PATH');
+    	exec_cmd ($cmd_eval, $param_href, 'plenv init');
+		sleep 1;
+    	exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
+
+		#checking if sourcing plenv worked
+		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver, $param_href );
+		if ($exit_plenv_ver2 == 0) {
+			print "We have sourced $stdout_plenv_ver2\n";
+			$plenv_source_flag = 1;
+		}
+		else {
+			die "Sourcing plenv didn't work.\n";
+		}
+	}
+	else {
+		print "$bash_profile already set for plenv\n";
+	}
+
+
+    #list all perls available (on verbose only)
+	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+		my $cmd_list_perls = q{plenv install --list};
+		my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
+		if ($verbose == 1) {
+			print "$stdout_list\n";
+		}
+	}
+    
+    #ask to choose which Perl to install
+	my $perl_install_flag = 0;
+	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+		my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
+		my $thread_options = 'usethreads nothreads';
+		print "Thread options are: $thread_options\n";
+		my $thread_option = prompt ('Do you want to install Perl with or without threads?>', 'nothreads');
+		print "Installing $perl_to_install with $thread_option\n";
+
+		#install Perl
+		my $cmd_install;
+		if ($thread_option eq 'nothreads') {
+			$cmd_install = qq{plenv install -j 8 -Dcc=gcc $perl_to_install};
+		}
+		else {
+			$cmd_install = qq{plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install};
+		}
+		exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
+	
+		#finish installation, set perl as global
+		my $cmd_rehash = q{plenv rehash};
+		my $cmd_global = qq{plenv global $perl_to_install};
+		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+		exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global");
+
+		$perl_install_flag = 1;
+	}
+
+	#check if right Perl installed
+	if ($perl_install_flag == 1) {
+		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver, $param_href );
+		if ($exit_ver2 == 0) {
+			if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
+				my $perl_ver2 = $1;
+				print "We have Perl $perl_ver2\n";
+			}
+		}
+	}
+
+	#install cpanm to installed perl
+	if ($perl_install_flag == 1) {
+		my $cmd_cpanm = q{plenv install-cpanm};
+		exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
+		if ($sudo == 1) {
+			my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
+			exec_cmd ($cmd_lib, $param_href, "local lib setup");
+		}
+		else {
+			print "Please setup you local lib with sudo permissions:\nsudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)\n";
+		}
+	}
+
+
+    return;
+}
+
+
+
+sub install_perl2 {
+    croak ('install_perl() needs a $param_href' ) unless @_ == 1;
+    my ( $param_href ) = @_;
 
     #check perl version
     my $cmd_perl_version = 'perl -v';
@@ -248,6 +473,10 @@ sub install_perl {
 
 					#install plenv
 					exec_cmd($cmd_plenv, $param_href, 'plenv install');
+
+					#installing Perl-Build plugin for install function in plenv
+					my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
+					exec_cmd ($cmd_perl_build, $param_href, 'Perl-Build install');
 				}
 
 				elsif ( $plenv_exist ) {
@@ -275,6 +504,12 @@ sub install_perl {
                 	exec_cmd ($cmd_eval, $param_href, 'plenv init');
                 	exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
                 	print "Updated \$PATH variable and initiliazed plenv\n";
+
+					#install cpanm globally
+					my $cmd_cpanm = q{plenv install-cpanm};
+					#my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
+					exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
+
 				}
 				else {
 					warn "$bash_profile already set for plenv";
@@ -305,17 +540,13 @@ sub install_perl {
             else {
                 $cmd_install = qq{plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install};
             }
-            my ($stdout_ins, $stderr_ins, $exit_ins) = capture_output( $cmd_install, $param_href );
             exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
 
             #finish installation, set perl as global
             my $cmd_rehash = q{plenv rehash};
             my $cmd_global = qq{plenv global $perl_to_install};
-            my $cmd_cpanm = q{plenv install-cpanm};
-            #my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
             exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
             exec_cmd ($cmd_global, $param_href, "Perl set to global");
-            exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
 
            #check if right Perl installed
            my ($stdout_ver, $stderr_ver, $exit_ver) = capture_output( $cmd_perl_version, $param_href );
@@ -386,45 +617,25 @@ __END__
 
 =head1 NAME
 
-MySQLinstall - is installation script that installs Perl using plenv, MySQL::Sandbox using cpanm, MySQL in a sandbox, additional engines like TokuDB and Deep and updates configuration.
+Perlinstall - is installation script that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you.
 
 =head1 SYNOPSIS
 
- MySQLinstall --mode=install_perl
+ Perlinstall --mode=install_perl
 
- MySQLinstall --mode=install_sandbox --sandbox=/msestak/sandboxes/ --opt=/msestak/opt/mysql/
-
- MySQLinstall --mode=wget_mysql -url http://dev.mysql.com/get/Downloads/MySQL-5.5/mysql-5.5.43-linux2.6-x86_64.tar.gz
-
- MySQLinstall --mode=wget_percona -url https://www.percona.com/downloads/Percona-Server-5.6/Percona-Server-5.6.24-72.2/binary/tarball/Percona-Server-5.6.24-rel72.2-Linux.x86_64.ssl101.tar.gz -url_tokudb https://www.percona.com/downloads/Percona-Server-5.6/Percona-Server-5.6.24-72.2/binary/tarball/Percona-Server-5.6.24-rel72.2-TokuDB.Linux.x86_64.ssl101.tar.gz
-
- MySQLinstall --mode=install_mysql -i ./download/mysql-5.6.26-linux-glibc2.5-x86_64.tar.gz
- MySQLinstall --mode=install_mysql --in=./download/Percona-Server-5.6.25-rel73.1-Linux.x86_64.ssl101.tar.gz
-
- MySQLinstall --mode=edit_tokudb --opt=/home/msestak/opt/mysql/5.6.25/ --sand=/home/msestak/sandboxes/msb_5_6_25/
-
- MySQLinstall --mode=edit_deep -i deep-mysql-5.6.25-community-plugin-3.2.0.19654-1.el6.x86_64.rpm --sand=/msestak/sandboxes/msb_5_6_25/ --opt=/msestak/opt/mysql/5.6.25/
- or with reporting
- MySQLinstall --mode=edit_deep_report -i ./download/deep-mysql-5.6.26-community-plugin-3.2.0.19896.el6.x86_64.tar.gz --sand=/home/msestak/sandboxes/msb_5_6_26 --opt=/home/msestak/opt/mysql/5.6.26
-
-
+ #full log
+ Perlinstall --mode=install_perl -v -v 
 
 =head1 DESCRIPTION
 
- MySQLinstall is installation script that installs Perl using plenv, MySQL::Sandbox using cpanm, MySQL in a sandbox, additional engines like TokuDB and Deep and updates configuration. 
+ Perlinstall is installation script that installs Perl using plenv (automatic install). If you have sudo permissions you can alos install extra stuff like git.
 
- --mode=mode				Description
  --mode=install_perl		installs latest Perl with perlenv and cpanm
- --mode=install_sandbox		installs MySQL::Sandbox and prompts for modification of .bashrc
- --mode=wget_mysql			downloads MySQL from Oracle
- --mode=wget_percona		downloads Percona Server with TokuDB
- --mode=install_mysql		installs MySQL and modifies my.cnf for performance
- --mode=edit_deep_report	installs TokuDB plugin
- --mode=edit_tokudb			installs Deep plugin
- 
+ --verbose, -v				enable verbose output (can be used twice) 
+
  For help write:
- MySQLinstall -h
- MySQLinstall -m
+ Perlinstall -h
+ Perlinstall -m
 
 
 =head1 LICENSE
@@ -439,17 +650,6 @@ it under the same terms as Perl itself.
 mocnii E<lt>msestak@irb.hrE<gt>
 
 =head1 EXAMPLE
- MySQLinstall --mode=install_mysql --in=./download/Percona-Server-5.6.25-rel73.1-Linux.x86_64.ssl101.tar.gz
- MySQLinstall --mode=edit_tokudb --opt=/home/msestak/opt/mysql/5.6.25/ --sand=/home/msestak/sandboxes/msb_5_6_25/
- 
- MySQLinstall --mode=install_mysql -i mysql-5.6.24-linux-glibc2.5-x86_64.tar.gz
- MySQLinstall --mode=edit_deep -i deep-mysql-5.6.24-community-plugin-3.2.0.19297-1.el6.x86_64.rpm --sand=/msestak/sandboxes/msb_5_6_24/ --opt=/msestak/opt/mysql/5.6.24/
-
- MySQLinstall --mode=install_mysql -i mysql-5.6.24-linux-glibc2.5-x86_64.tar.gz
- MySQLinstall --mode=edit_deep_report -i deep-mysql-5.6.24-community-plugin-3.2.0.19654.el6.x86_64.tar.gz --sand=/msestak/sandboxes/msb_5_6_24/ --opt=/msestak/opt/mysql/5.6.24/
-
- MySQLinstall --mode=install_mysql -i ./download/mysql-5.6.27-linux-glibc2.5-x86_64.tar.gz
- MySQLinstall --mode=edit_deep_report -i ./download/deep-mysql-5.6.27-community-plugin-3.3.0.20340.el6.x86_64.tar.gz --sand=/home/msestak/sandboxes/msb_5_6_27/ --opt=/home/msestak/opt/mysql/5.6.27/
 
 =cut
 

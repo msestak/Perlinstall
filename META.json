@@ -1,5 +1,5 @@
 {
-   "abstract" : "It's new $module",
+   "abstract" : "is installation script that installs Perl using plenv. If you have sudo permissions it also installs git and \"Development tools\" for you.",
    "author" : [
       "mocnii <msestak@irb.hr>"
    ],
@@ -52,5 +52,5 @@
       }
    },
    "release_status" : "unstable",
-   "version" : "0.01"
+   "version" : "0.001"
 }
