@@ -344,14 +344,14 @@ sub install_perl {
 		if ($installer eq 'yum') {   #on CentOS
 			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
 			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
-			#$cmd_exec = q{source $HOME/.bash_profile};
-			$cmd_exec = q{exec $SHELL -l};
+			$cmd_exec = q{source $HOME/.bash_profile};
+			#$cmd_exec = q{exec $SHELL -l};
 		}
 		else {   #on Ubuntu
 			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.profile};
 			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.profile};
-			#$cmd_exec = q{source $HOME/.profile};
-			$cmd_exec = q{exec $SHELL -l};
+			$cmd_exec = q{source $HOME/.profile};
+			#$cmd_exec = q{exec $SHELL -l};
 		}
 
     	exec_cmd ($cmd_path, $param_href, 'export PATH');
@@ -359,14 +359,31 @@ sub install_perl {
 		sleep 1;
     	exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
 
-		#checking if sourcing plenv worked
-		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver, $param_href );
-		if ($exit_plenv_ver2 == 0) {
-			print "We have sourced $stdout_plenv_ver2\n";
-			$plenv_source_flag = 1;
+		#PLENV_SHELL=bash
+		#[msestak@vcl-1-119 ~]$ echo $PATH
+		#/home/msestak/.plenv/shims:/home/msestak/.plenv/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/home/msestak/bin:/home/msestak/bin
+		my $pid = fork;
+		if (!defined $pid) {
+			die "couldn't fork!";
+		}
+		if ($pid == 0) {
+			#child
+			#checking if sourcing plenv worked
+			my $cmd_plenv_ver2 = q{bash -lc "plenv --version"};
+			my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver2, $param_href );
+			if ($exit_plenv_ver2 == 0) {
+				print "We have sourced $stdout_plenv_ver2\n";
+				$plenv_source_flag = 1;
+				exit 0;
+			}
+			else {
+				die "Sourcing plenv didn't work.\n";
+			}
 		}
 		else {
-			die "Sourcing plenv didn't work.\n";
+			#parent
+			print "in parent $$, waiting for child:$pid\n";
+			waitpid($pid, 0);
 		}
 	}
 	else {
