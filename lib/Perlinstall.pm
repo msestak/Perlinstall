@@ -423,25 +423,38 @@ sub install_perl {
 			#install Perl
 			my $cmd_install;
 			if ($thread_option eq 'nothreads') {
-				$cmd_install = qq{plenv install -j 8 -Dcc=gcc $perl_to_install};
+				$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc $perl_to_install"};
 			}
 			else {
-				$cmd_install = qq{plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install};
+				$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install"};
 			}
 			exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
 		
 			#finish installation, set perl as global
-			my $cmd_rehash = q{plenv rehash};
-			my $cmd_global = qq{plenv global $perl_to_install};
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global $perl_to_install"};
 			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global");
+			exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global (plenv global)");
+
+			#set through %ENV if plenv global didn't work
+			if (defined $ENV{PLENV_VERSION}) {
+				if ($ENV{PLENV_VERSION} eq $perl_to_install) {
+					print "Perl $perl_to_install set to global. Whoa:)\n";
+				}
+				else {
+					#set it yourself
+					$ENV{PLENV_VERSION} = $perl_to_install;
+					print "Perl $perl_to_install set to global. For real this time:)\n";
+				}
+			}
 	
 			$perl_install_flag = 1;
 		}
 	
 		#check if right Perl installed
 		if ($perl_install_flag == 1) {
-			my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver, $param_href );
+			my $cmd_perl_ver2 = q{$SHELL -lc "perl -v"};
+			my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver2, $param_href );
 			if ($exit_ver2 == 0) {
 				if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
 					my $perl_ver2 = $1;
@@ -452,10 +465,16 @@ sub install_perl {
 	
 		#install cpanm to installed perl
 		if ($perl_install_flag == 1) {
-			my $cmd_cpanm = q{plenv install-cpanm};
+			my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
 			exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
+
+			# rehash form cpanm installation
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+
+			#install local lib in $HOME/perl
 			if ($sudo == 1) {
-				my $cmd_lib   = q{sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)};
+				my $cmd_lib   = q{$SHELL -lc "sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)"};
 				exec_cmd ($cmd_lib, $param_href, "local lib setup");
 				
 			}
@@ -475,7 +494,7 @@ sub install_perl {
 
 	#restarting shell to see new perl
 	print "Restarting shell ...\n";
-	my $cmd_shell = exec "source $bash_profile";
+	my $cmd_shell = exec( '$SHELL -l' );
 
     return;
 }
