@@ -7,7 +7,7 @@ Perlinstall - is installation script that installs Perl using plenv. If you have
     Perlinstall --mode=install_perl
 
     #full log
-    Perlinstall --mode=install_perl -v -v 
+    ./Perlinstall.pm --mode=install_perl -v -v --sudo
 
 # DESCRIPTION
 

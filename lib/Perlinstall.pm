@@ -16,6 +16,12 @@ our $VERSION = "0.001";
 
 our @EXPORT_OK = qw{
   run
+  get_parameters_from_cmd
+  capture_output
+  exec_cmd
+  install_perl
+  _is_interactive
+  prompt
 
 };
 
@@ -64,11 +70,11 @@ sub run {
 
     foreach my $mode (@mode) {
         if ( exists $dispatch{$mode} ) {
-            warn "RUNNING ACTION for mode: $mode";
+            print "RUNNING ACTION for mode: $mode\n";
 
             $dispatch{$mode}->( $param_href );
 
-            warn "TIME when finished for: $mode";
+            print "TIME when finished for: $mode\n";
         }
         else {
             #complain if mode misspelled or just plain wrong
@@ -309,7 +315,6 @@ sub install_perl {
 	#check if Perl-Build plugin for plenv installed
 	my $perl_build_flag = 0;
 	my $perl_build_dir = catdir("$ENV{HOME}", '/.plenv/plugins/perl-build');
-	print "$perl_build_dir\n";
 	if (-d $perl_build_dir and -s $perl_build_dir) {
 		$perl_build_flag = 1;
 		print "Perl-Build is installed\n";
@@ -468,19 +473,9 @@ sub install_perl {
 			my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
 			exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
 
-			# rehash form cpanm installation
+			# rehash after cpanm installation
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
 			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-
-			#install local lib in $HOME/perl
-			if ($sudo == 1) {
-				my $cmd_lib   = q{$SHELL -lc "sudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)"};
-				exec_cmd ($cmd_lib, $param_href, "local lib setup");
-				
-			}
-			else {
-				print "Please setup you local lib with sudo permissions:\nsudo cpanm --local-lib=~/perl5 local::lib && eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib)\n";
-			}
 		}
 
 		#end of child
@@ -684,7 +679,7 @@ Perlinstall - is installation script that installs Perl using plenv. If you have
  Perlinstall --mode=install_perl
 
  #full log
- Perlinstall --mode=install_perl -v -v 
+ ./Perlinstall.pm --mode=install_perl -v -v --sudo
 
 =head1 DESCRIPTION
 
