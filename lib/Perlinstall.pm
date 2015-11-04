@@ -375,82 +375,99 @@ sub install_perl {
 		print "$bash_profile is already set for plenv.\n";
 	}
 
-	    #list all perls available (on verbose only)
-		if ($plenv_flag == 1 or $plenv_source_flag == 1) {
-			my $cmd_list_perls = q{$SHELL -lc "plenv install --list"};
-			my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
-			if ($verbose == 1) {
-				print "$stdout_list\n";
-			}
+	#list all perls available (on verbose only)
+	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+		my $cmd_list_perls = q{$SHELL -lc "plenv install --list"};
+		my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
+		if ($verbose == 1) {
+			print "$stdout_list\n";
 		}
-	    
-	    #ask to choose which Perl to install
-		my $perl_install_flag = 0;
-		if ($plenv_flag == 1 or $plenv_source_flag == 1) {
-			my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
-			my $thread_options = 'usethreads nothreads';
-			print "Thread options are: $thread_options\n";
-			my $thread_option = prompt ('Do you want to install Perl with or without threads?>', 'nothreads');
-			print "Installing $perl_to_install with $thread_option.\n";
+	}
 	
-			#install Perl
-			my $cmd_install;
-			if ($thread_option eq 'nothreads') {
-				$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc $perl_to_install"};
+	#ask to choose which Perl to install
+	my $perl_install_flag = 0;
+	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+		my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
+		my $thread_option = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
+		print "Installing $perl_to_install with $thread_option.\n";
+	
+		#install Perl
+		my $cmd_install;
+		if ($thread_option eq 'nothreads') {
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc $perl_to_install"};
+		}
+		else {
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install"};
+		}
+		exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
+	
+		#finish installation, set perl as global
+		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+		my $cmd_global = qq{\$SHELL -lc "plenv global $perl_to_install"};
+		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+		exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global (plenv global)");
+
+		#set through %ENV if plenv global didn't work
+		if (defined $ENV{PLENV_VERSION}) {
+			if ($ENV{PLENV_VERSION} eq $perl_to_install) {
+				print "Perl $perl_to_install set to global. Whoa:)\n";
 			}
 			else {
-				$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install"};
+				#set it yourself
+				$ENV{PLENV_VERSION} = $perl_to_install;
+				print "Perl $perl_to_install set to global. For real this time:)\n";
 			}
-			exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
-		
-			#finish installation, set perl as global
-			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			my $cmd_global = qq{\$SHELL -lc "plenv global $perl_to_install"};
-			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global (plenv global)");
-
-			#set through %ENV if plenv global didn't work
-			if (defined $ENV{PLENV_VERSION}) {
-				if ($ENV{PLENV_VERSION} eq $perl_to_install) {
-					print "Perl $perl_to_install set to global. Whoa:)\n";
+		}
+	
+		$perl_install_flag = 1;
+	}
+	
+	#check if right Perl installed
+	my $perl_ver2;
+	if ($perl_install_flag == 1) {
+		my $cmd_perl_ver2 = q{$SHELL -lc "perl -v"};
+		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver2, $param_href );
+		if ($exit_ver2 == 0) {
+			if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
+				$perl_ver2 = $1;
+				#print "We have Perl $perl_ver2.\n";
+				if ($perl_ver2 eq $old_perl_ver) {
+					print "We didn't switch from $old_perl_ver to newly installed $perl_ver2\n";
 				}
 				else {
-					#set it yourself
-					$ENV{PLENV_VERSION} = $perl_to_install;
-					print "Perl $perl_to_install set to global. For real this time:)\n";
-				}
-			}
-	
-			$perl_install_flag = 1;
-		}
-	
-		#check if right Perl installed
-		if ($perl_install_flag == 1) {
-			my $cmd_perl_ver2 = q{$SHELL -lc "perl -v"};
-			my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver2, $param_href );
-			if ($exit_ver2 == 0) {
-				if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
-					my $perl_ver2 = $1;
-					#print "We have Perl $perl_ver2.\n";
-					if ($perl_ver2 eq $old_perl_ver) {
-						print "We didn't switch from $old_perl_ver to newly installed $perl_ver2\n";
-					}
-					else {
-						print "We switched from $old_perl_ver to newly installed $perl_ver2\n";
-					}
+					print "We switched from $old_perl_ver to newly installed $perl_ver2\n";
 				}
 			}
 		}
+	}
 	
-		#install cpanm to installed perl
-		if ($perl_install_flag == 1) {
-			my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
-			exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
+	#install cpanm to installed perl
+	if ($perl_install_flag == 1) {
+		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
+		exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
 
-			# rehash after cpanm installation
-			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+		# rehash after cpanm installation
+		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+	}
+
+	#ask to migrate modules from old Perl to new Perl
+	my $migration = prompt ('Do you want to migrate your modules to new Perl install (y/n)?', 'n');
+	if (lc $migration eq 'y') {
+		my $cmd_mig = qq{plenv migrate-modules -n $old_perl_ver $perl_ver2};
+		#exec_cmd ($cmd_mig, $param_href, "plenv migrate-modules");
+		my ($stdout_mig, $stderr_mig, $exit_mig) = capture_output( $cmd_mig, $param_href );
+		#usually fails first time
+		if ($exit_mig != 0) {
+			exec_cmd ($cmd_mig, $param_href, "plenv migrate-modules");
 		}
+		else {
+			print "Migrated modules from $old_perl_ver to $perl_ver2.\n";
+		}
+	}
+	else {
+		#nothing
+	}
 
 	#restarting shell to see new perl
 	print "Restarting shell to see new Perl...\n";
@@ -512,26 +529,30 @@ __END__
 
 =head1 NAME
 
-Perlinstall - is installation script that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you.
+Perlinstall - is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you.
 
 =head1 SYNOPSIS
-
+ #if git installed
  Perlinstall --mode=install_perl
 
- #full log
- ./Perlinstall.pm --mode=install_perl -v -v --sudo
+ #full verbose with git installed
+ ./Perlinstall.pm --mode=install_perl -v -v
+
+ #sudo needed to also install git
+ ./Perlinstall.pm --mode=install_perl --sudo
+
 
 =head1 DESCRIPTION
 
- Perlinstall is installation script that installs Perl using plenv (automatic install). If you have sudo permissions you can alos install extra stuff like git.
+ Perlinstall is installation script (built like modulino) that installs Perl using plenv. Asks for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc.
 
  --mode=install_perl		installs latest Perl with perlenv and cpanm
- --verbose, -v				enable verbose output (can be used twice) 
+ --verbose, -v				enable verbose output (can be used twice)
+ --sudo						use sudo to install git and development tools (only if you have sudo permissions)
 
  For help write:
  Perlinstall -h
  Perlinstall -m
-
 
 =head1 LICENSE
 
@@ -542,7 +563,7 @@ it under the same terms as Perl itself.
 
 =head1 AUTHOR
 
-mocnii E<lt>msestak@irb.hrE<gt>
+Martin Sebastijan Šestak E<lt>msestak@irb.hrE<gt>
 
 =head1 EXAMPLE
 

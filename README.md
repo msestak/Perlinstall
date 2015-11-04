@@ -1,20 +1,24 @@
 # NAME
 
-Perlinstall - is installation script that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you.
+Perlinstall - is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you.
 
 # SYNOPSIS
+ #if git installed
+ Perlinstall --mode=install\_perl
 
-    Perlinstall --mode=install_perl
+    #full verbose with git installed
+    ./Perlinstall.pm --mode=install_perl -v -v
 
-    #full log
-    ./Perlinstall.pm --mode=install_perl -v -v --sudo
+    #sudo needed to also install git
+    ./Perlinstall.pm --mode=install_perl --sudo
 
 # DESCRIPTION
 
-    Perlinstall is installation script that installs Perl using plenv (automatic install). If you have sudo permissions you can alos install extra stuff like git.
+    Perlinstall is installation script (built like modulino) that installs Perl using plenv. Asks for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc.
 
     --mode=install_perl            installs latest Perl with perlenv and cpanm
-    --verbose, -v                          enable verbose output (can be used twice) 
+    --verbose, -v                          enable verbose output (can be used twice)
+    --sudo                                         use sudo to install git and development tools (only if you have sudo permissions)
 
     For help write:
     Perlinstall -h
@@ -29,6 +33,6 @@ it under the same terms as Perl itself.
 
 # AUTHOR
 
-mocnii <msestak@irb.hr>
+Martin Sebastijan Šestak <msestak@irb.hr>
 
 # EXAMPLE
