@@ -236,7 +236,7 @@ sub install_perl {
 		print "Working with sudo permissions!\n";
 	}
 	else {
-		print "Working without sudo (which is fine if you have git).\n";
+		print "Working without sudo (which is fine if you have git and essential build tools like gcc...).\n";
 	}
 
 	#install prerequisites for plenv
@@ -248,12 +248,23 @@ sub install_perl {
 	};
 
 	#install git, basic Development tools
+	my $git_flag = 0;
     my $cmd_check_git = 'git --version';
     my ($stdout_check_git, $stderr_check_git, $exit_check_git) = capture_output( $cmd_check_git, $param_href );
 	if ($exit_check_git == 0) {
-		print "Great. You have git. Continuing with plenv install.\n";
+		$git_flag = 1;
+		print "Great. You have git.\n";
 	}
-	else {
+	my $gcc_flag = 0;
+    my $cmd_check_gcc = 'gcc --version';
+    my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = capture_output( $cmd_check_gcc, $param_href );
+	if ($exit_check_gcc == 0) {
+		$gcc_flag = 1;
+		print "Great. You have gcc. Continuing with plenv install.\n";
+	}
+
+	#install git and development tools if missing
+	if ($git_flag == 0 or $gcc_flag == 0) {
 		#we are on CentOS or Redhat linux and have sudo
 		if ( ($sudo == 1) and ($installer eq 'yum') ) {
 			my $cmd_git = "sudo $installer -y install git";
