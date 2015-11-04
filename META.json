@@ -1,7 +1,7 @@
 {
-   "abstract" : "is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and \"Development tools\" for you.",
+   "abstract" : "is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and \"Development tools\" for you. If you have git and development tools you can skip sudo.",
    "author" : [
-      "Martin Sebastijan Šestak <msestak@irb.hr>"
+      "d5"
    ],
    "dynamic_config" : 0,
    "generated_by" : "Minilla/v2.5.0, CPAN::Meta::Converter version 2.143240",
@@ -52,5 +52,8 @@
       }
    },
    "release_status" : "unstable",
-   "version" : "0.001"
+   "version" : "0.001",
+   "x_contributors" : [
+      "mocnii <msestak@irb.hr>"
+   ]
 }

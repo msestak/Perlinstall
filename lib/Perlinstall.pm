@@ -70,11 +70,11 @@ sub run {
 
     foreach my $mode (@mode) {
         if ( exists $dispatch{$mode} ) {
-            print "RUNNING ACTION for mode: $mode\n";
+			#print "RUNNING ACTION for mode: $mode\n";
 
             $dispatch{$mode}->( $param_href );
 
-            print "TIME when finished for: $mode\n";
+			#print "TIME when finished for: $mode\n";
         }
         else {
             #complain if mode misspelled or just plain wrong
@@ -375,7 +375,7 @@ sub install_perl {
 		my $cmd_plenv_ver2 = q{$SHELL -lc "plenv --version"};
 		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver2, $param_href );
 		if ($exit_plenv_ver2 == 0) {
-			print "We have sourced $stdout_plenv_ver2.\n";
+			print "We have sourced $stdout_plenv_ver2\n";
 			$plenv_source_flag = 1;
 		}
 		else {
@@ -463,22 +463,8 @@ sub install_perl {
 	}
 
 	#ask to migrate modules from old Perl to new Perl
-	my $migration = prompt ('Do you want to migrate your modules to new Perl install (y/n)?', 'n');
-	if (lc $migration eq 'y') {
-		my $cmd_mig = qq{plenv migrate-modules -n $old_perl_ver $perl_ver2};
-		#exec_cmd ($cmd_mig, $param_href, "plenv migrate-modules");
-		my ($stdout_mig, $stderr_mig, $exit_mig) = capture_output( $cmd_mig, $param_href );
-		#usually fails first time
-		if ($exit_mig != 0) {
-			exec_cmd ($cmd_mig, $param_href, "plenv migrate-modules");
-		}
-		else {
-			print "Migrated modules from $old_perl_ver to $perl_ver2.\n";
-		}
-	}
-	else {
-		#nothing
-	}
+	my $cmd_mig = qq{plenv migrate-modules -n $old_perl_ver $perl_ver2};
+	print "To migrate modules from old Perl to new Perl run:\n$cmd_mig\n";
 
 	#restarting shell to see new perl
 	print "Restarting shell to see new Perl...\n";
@@ -540,22 +526,22 @@ __END__
 
 =head1 NAME
 
-Perlinstall - is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you.
+Perlinstall - is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you. If you have git and development tools you can skip sudo.
 
 =head1 SYNOPSIS
+
  #if git installed
  Perlinstall --mode=install_perl
 
  #full verbose with git installed
  ./Perlinstall.pm --mode=install_perl -v -v
 
- #sudo needed to also install git
+ #sudo needed to also install git and gcc
  ./Perlinstall.pm --mode=install_perl --sudo
-
 
 =head1 DESCRIPTION
 
- Perlinstall is installation script (built like modulino) that installs Perl using plenv. Asks for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc.
+ Perlinstall is installation script (built like modulino) that installs Perl using plenv. Prompts for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc.
 
  --mode=install_perl		installs latest Perl with perlenv and cpanm
  --verbose, -v				enable verbose output (can be used twice)
@@ -577,6 +563,32 @@ it under the same terms as Perl itself.
 Martin Sebastijan Šestak E<lt>msestak@irb.hrE<gt>
 
 =head1 EXAMPLE
+
+ ./Perlinstall.pm --mode=install_perl
+ Working without sudo (which is fine if you have git and essential build tools like gcc...).
+ Great. You have git.
+ Great. You have gcc. Continuing with plenv install.
+ We have Perl 5.10.1 installed.
+ plenv is not installed, installing now...
+ plenv install success!
+ Perl-Build is not installed, installing now...
+ Perl-Build install success!
+ export PATH success!
+ plenv init success!
+ sourcing .bash_profile success!
+ We have sourced plenv 2.1.1-37-gb0945d5
+ Choose which Perl version you want to install> [5.22.0] 
+ Do you want to install Perl with {usethreads} or without threads {nothreads}?> [nothreads] 
+ Installing 5.22.0 with nothreads.
+ Perl 5.22.0 install success!
+ plenv rehash success!
+ Perl 5.22.0 set to global (plenv global) success!
+ We switched from 5.10.1 to newly installed 5.22.0
+ cpanm install success!
+ plenv rehash success!
+ To migrate modules from old Perl to new Perl run:
+ plenv migrate-modules -n 5.10.1 5.22.0
+ Restarting shell to see new Perl...
 
 =cut
 
