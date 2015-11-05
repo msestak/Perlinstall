@@ -102,13 +102,16 @@ sub get_parameters_from_cmd {
 	$cli{verbose} = 0;
 	$cli{sudo}    = 0;
 	$cli{cperl}   = 0;
+	$cli{threads} = 0;
 
 	#mode, quiet and verbose can only be set on command line
     GetOptions(
         'help|h'        => \$cli{help},
         'man|m'         => \$cli{man},
+        'perl|c=s'      => \$cli{perl},       #Perl to install
         'cperl|c'       => \$cli{cperl},      #flag
-        'migrate|m=s'   => \$cli{migrate},
+        'threads|t'     => \$cli{threads},    #flag
+        'migrate|m'     => \$cli{migrate},    #flag
         'infile|if=s'   => \$cli{infile},
         'out|o=s'       => \$cli{out},
         'mode|mo=s{1,}' => \$cli{mode},       #accepts 1 or more arguments
@@ -224,6 +227,9 @@ sub install_perl {
     my $sudo    = $param_href->{sudo};
     my $verbose = $param_href->{verbose};
     my $cperl   = $param_href->{cperl};
+    my $threads = $param_href->{threads};
+    my $migrate = $param_href->{migrate};
+    my $Perl_ver= $param_href->{perl};
 	my $shell = $ENV{SHELL};   #to be used in commands
 
 	if ($sudo) {
@@ -254,28 +260,37 @@ sub install_perl {
     my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = capture_output( $cmd_check_gcc, $param_href );
 	if ($exit_check_gcc == 0) {
 		$gcc_flag = 1;
-		print "Great. You have gcc. Continuing with plenv install.\n";
+		print "Great. You have gcc.\n";
+	}
+	my $make_flag = 0;
+    my $cmd_check_make = 'make --version';
+    my ($stdout_check_make, $stderr_check_make, $exit_check_make) = capture_output( $cmd_check_make, $param_href );
+	if ($exit_check_make == 0) {
+		$make_flag = 1;
+		print "Great. You have make. Continuing with plenv install.\n";
 	}
 
 	#install git and development tools if missing
-	if ($git_flag == 0 or $gcc_flag == 0) {
-		#we are on CentOS or Redhat linux and have sudo
-		if ( ($sudo == 1) and ($installer eq 'yum') ) {
+	if ($git_flag == 0) {
+		if ($sudo == 1) {
 			my $cmd_git = "sudo $installer -y install git";
 			exec_cmd($cmd_git, $param_href, 'git install');
-
+		}
+		else {
+			die "git missing. You should first install git or try again with --sudo option if you have sudo permissions :)";
+		}
+	}
+	if ($gcc_flag == 0 or $make_flag == 0) {
+		if ( ($sudo == 1) and ($installer eq 'yum') ) {
 			my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
 			exec_cmd($cmd_tools, $param_href, 'Development tools install');
 		}
 		elsif ( ($sudo == 1) and ($installer eq 'apt-get') ) {
-			my $cmd_git = "sudo $installer -y install git";
-			exec_cmd($cmd_git, $param_href, 'git install');
-
 			my $cmd_tools = q{sudo apt-get install build-essential};
 			exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
 		}
 		else {
-			die "git missing. You should first install git or try again with --sudo option if you have sudo permissions :)";
+			die "gcc or make missing. You should first install them or try again with --sudo option if you have sudo permissions :)";
 		}
 	}
 
@@ -399,26 +414,35 @@ sub install_perl {
 		exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
 		exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
 
-		my $cmd_cperl = qq{plenv install -j 4 -Dusedevel -Dusecperl --as cperl https://github.com/perl11/cperl/archive/cperl-5.22.1.tar.gz};
+		my $cperl_ver;
+		if ($Perl_ver) {
+			$cperl_ver = "cperl-${Perl_ver}";
+		}
+		else {
+			$cperl_ver = 'cperl-5.22.1';
+		}
+		
+		#build a command and install cperl
+		my $cmd_cperl = qq{plenv install -j 4 -Dusedevel -Dusecperl --as $cperl_ver https://github.com/perl11/cperl/archive/${cperl_ver}.tar.gz};
 		my ($stdout_cperl, $stderr_cperl, $exit_cperl) = capture_output( $cmd_cperl, $param_href );
 		if ($exit_cperl == 0) {
-			print "Installed cperl\n";
+			print "Installed $cperl_ver\n";
 			
 			#finish installation, set perl as global
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			my $cmd_global = qq{\$SHELL -lc "plenv global cperl"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global $cperl_ver"};
 			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
 			exec_cmd ($cmd_global, $param_href, "Perl cperl set to global (plenv global)");
 
 				#set through %ENV if plenv global didn't work
 				if (defined $ENV{PLENV_VERSION}) {
-					if ($ENV{PLENV_VERSION} eq 'cperl') {
-						print "Perl cperl set to global. Whoa:)\n";
+					if ($ENV{PLENV_VERSION} eq "$cperl_ver") {
+						print "Perl $cperl_ver set to global. Whoa:)\n";
 					}
 					else {
 						#set it yourself
-						$ENV{PLENV_VERSION} = 'cperl';
-						print "Perl s now cperl 5.22.1. For real this time:)\n";
+						$ENV{PLENV_VERSION} = "$cperl_ver";
+						print "Perl is now $cperl_ver. For real this time:)\n";
 					}
 				}
 	
@@ -429,40 +453,50 @@ sub install_perl {
 
 	
 	#ask to choose which Perl to install
+	my $cmd_install;
 	if ($perl_install_flag == 0 and ($plenv_flag == 1 or $plenv_source_flag == 1) ) {
-		my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
-		my $thread_option = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
-		print "Installing $perl_to_install with $thread_option.\n";
-	
-		#install Perl
-		my $cmd_install;
-		if ($thread_option eq 'nothreads') {
-			$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc $perl_to_install"};
+
+		#prompt for Perl version if not given on command prompt
+		if (!$Perl_ver) {
+			$Perl_ver = prompt ('Choose which Perl version you want to install>', '5.22.0');
+		}
+
+		#prompt for threads option if not given on command prompt
+		if (!$threads) {
+			$threads = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
+		}
+
+		#make install command
+		if ($threads eq 'nothreads') {
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc $Perl_ver"};
 		}
 		else {
-			$cmd_install = qq{\$SHELL -lc "plenv install -j 8 -Dcc=gcc -D usethreads $perl_to_install"};
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc -D usethreads $Perl_ver"};
 		}
-		exec_cmd ($cmd_install, $param_href, "Perl $perl_to_install install");
-	
-		#finish installation, set perl as global
-		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-		my $cmd_global = qq{\$SHELL -lc "plenv global $perl_to_install"};
-		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-		exec_cmd ($cmd_global, $param_href, "Perl $perl_to_install set to global (plenv global)");
 
-		#set through %ENV if plenv global didn't work
-		if (defined $ENV{PLENV_VERSION}) {
-			if ($ENV{PLENV_VERSION} eq $perl_to_install) {
-				print "Perl $perl_to_install set to global. Whoa:)\n";
-			}
-			else {
-				#set it yourself
-				$ENV{PLENV_VERSION} = $perl_to_install;
-				print "Perl $perl_to_install set to global. For real this time:)\n";
+		#install Perl
+		my ($stdout_perl, $stderr_perl, $exit_perl) = capture_output( $cmd_install, $param_href );
+		if ($exit_perl == 0) {
+			$perl_install_flag = 1;
+		
+			#finish installation, set perl as global
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global $Perl_ver"};
+			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			exec_cmd ($cmd_global, $param_href, "Perl $Perl_ver set to global (through plenv global)");
+	
+			#set through %ENV if plenv global didn't work
+			if (defined $ENV{PLENV_VERSION}) {
+				if ($ENV{PLENV_VERSION} eq $Perl_ver) {
+					#print "Perl $Perl_ver set to global. Whoa:)\n";
+				}
+				else {
+					#set it yourself
+					$ENV{PLENV_VERSION} = $Perl_ver;
+					print "Perl $Perl_ver set to global. For real this time:)\n";
+				}
 			}
 		}
-	
-		$perl_install_flag = 1;
 	}
 	
 	#check if right Perl installed
@@ -485,25 +519,28 @@ sub install_perl {
 	}
 	
 	#install cpanm to installed Perl
+	my $cpanm_install_flag = 0;
 	if ($perl_install_flag == 1) {
 		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
-		exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
+		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = capture_output( $cmd_cpanm, $param_href );
+		if ($exit_cpanm == 0) {
+			$cpanm_install_flag = 1;
 
-		# rehash after cpanm installation
-		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			# rehash after cpanm installation
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+		}
 	}
 
-	#install cpanm to installed cperl
-	if ($perl_install_flag == 1 and $cperl == 1) {
-		my $cmd_cpan = q{$SHELL -lc "perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
+	#install cpanm to installed cperl because cperl has bug with cpanm installation. At least cperl-5.22.1.
+	if ($perl_install_flag == 1 and $cperl == 1 and $cpanm_install_flag == 0) {
+		my $cmd_cpan = q{$SHELL -lc "yes|perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
 		exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
 
 		# rehash after cpanm installation
 		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
 		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
 	}
-
 
 	#ask to migrate modules from old Perl to new Perl
 	my $cmd_mig = qq{plenv migrate-modules -n $old_perl_ver $perl_ver2};
@@ -576,11 +613,14 @@ Perlinstall - is installation script (modulino) that installs Perl using plenv. 
  #if git installed
  Perlinstall --mode=install_perl
 
- #full verbose with git installed
- ./Perlinstall.pm --mode=install_perl -v -v
+ #full verbose with threads and no prompt
+ ./Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads
 
  #sudo needed to also install git and gcc
  ./Perlinstall.pm --mode=install_perl --sudo
+
+ #install cperl 5.22.1 with nothreads
+ ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1
 
 =head1 DESCRIPTION
 
