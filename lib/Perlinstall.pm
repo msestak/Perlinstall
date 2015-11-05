@@ -102,7 +102,6 @@ sub get_parameters_from_cmd {
 	$cli{verbose} = 0;
 	$cli{sudo}    = 0;
 	$cli{cperl}   = 0;
-	$cli{threads} = 0;
 
 	#mode, quiet and verbose can only be set on command line
     GetOptions(
@@ -110,7 +109,7 @@ sub get_parameters_from_cmd {
         'man|m'         => \$cli{man},
         'perl|c=s'      => \$cli{perl},       #Perl to install
         'cperl|c'       => \$cli{cperl},      #flag
-        'threads|t'     => \$cli{threads},    #flag
+        'threads|t=s'   => \$cli{threads},    #flag
         'migrate|m'     => \$cli{migrate},    #flag
         'infile|if=s'   => \$cli{infile},
         'out|o=s'       => \$cli{out},
@@ -610,17 +609,17 @@ Perlinstall - is installation script (modulino) that installs Perl using plenv. 
 
 =head1 SYNOPSIS
 
- #if git installed
+ #if git installed (prompt for perl version and threads support)
  Perlinstall --mode=install_perl
 
  #full verbose with threads and no prompt
- ./Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads
+ ./Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads=usethreads
 
- #sudo needed to also install git and gcc
+ #sudo needed to install git, gcc and make
  ./Perlinstall.pm --mode=install_perl --sudo
 
  #install cperl 5.22.1 with nothreads
- ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1
+ ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1 --threads=nothreads
 
 =head1 DESCRIPTION
 
