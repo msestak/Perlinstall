@@ -101,23 +101,16 @@ sub get_parameters_from_cmd {
 	$cli{quiet}   = 0;
 	$cli{verbose} = 0;
 	$cli{sudo}    = 0;
+	$cli{cperl}   = 0;
 
 	#mode, quiet and verbose can only be set on command line
     GetOptions(
         'help|h'        => \$cli{help},
         'man|m'         => \$cli{man},
-        'url=s'         => \$cli{url},
-        'sandbox|sand=s'=> \$cli{sandbox},
-        'opt=s'         => \$cli{opt},
-
+        'cperl|c'       => \$cli{cperl},      #flag
+        'migrate|m=s'   => \$cli{migrate},
         'infile|if=s'   => \$cli{infile},
         'out|o=s'       => \$cli{out},
-        'host|h=s'      => \$cli{host},
-        'database|d=s'  => \$cli{database},
-        'user|u=s'      => \$cli{user},
-        'password|p=s'  => \$cli{password},
-        'port|po=i'     => \$cli{port},
-        'socket|s=s'    => \$cli{socket},
         'mode|mo=s{1,}' => \$cli{mode},       #accepts 1 or more arguments
         'quiet|q'       => \$cli{quiet},      #flag
         'verbose+'      => \$cli{verbose},    #flag
@@ -230,6 +223,7 @@ sub install_perl {
     my ( $param_href ) = @_;
     my $sudo    = $param_href->{sudo};
     my $verbose = $param_href->{verbose};
+    my $cperl   = $param_href->{cperl};
 	my $shell = $ENV{SHELL};   #to be used in commands
 
 	if ($sudo) {
@@ -394,10 +388,48 @@ sub install_perl {
 			print "$stdout_list\n";
 		}
 	}
+
+	#install cperl if requested
+	my $perl_install_flag = 0;
+	if ($cperl) {
+
+		#install OpenSSL library to fetch cperl archive
+		my $cmd_ssl = qq{sudo $installer install -y openssl-devel};
+		my $cmd_ssl2 = q{cpanm -n IO::Socket::SSL};
+		exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
+		exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
+
+		my $cmd_cperl = qq{plenv install -j 4 -Dusedevel -Dusecperl --as cperl https://github.com/perl11/cperl/archive/cperl-5.22.1.tar.gz};
+		my ($stdout_cperl, $stderr_cperl, $exit_cperl) = capture_output( $cmd_cperl, $param_href );
+		if ($exit_cperl == 0) {
+			print "Installed cperl\n";
+			
+			#finish installation, set perl as global
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global cperl"};
+			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			exec_cmd ($cmd_global, $param_href, "Perl cperl set to global (plenv global)");
+
+				#set through %ENV if plenv global didn't work
+				if (defined $ENV{PLENV_VERSION}) {
+					if ($ENV{PLENV_VERSION} eq 'cperl') {
+						print "Perl cperl set to global. Whoa:)\n";
+					}
+					else {
+						#set it yourself
+						$ENV{PLENV_VERSION} = 'cperl';
+						print "Perl s now cperl 5.22.1. For real this time:)\n";
+					}
+				}
+	
+			$perl_install_flag = 1;
+		}
+	}
+
+
 	
 	#ask to choose which Perl to install
-	my $perl_install_flag = 0;
-	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+	if ($perl_install_flag == 0 and ($plenv_flag == 1 or $plenv_source_flag == 1) ) {
 		my $perl_to_install = prompt ('Choose which Perl version you want to install>', '5.22.0');
 		my $thread_option = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
 		print "Installing $perl_to_install with $thread_option.\n";
@@ -452,7 +484,7 @@ sub install_perl {
 		}
 	}
 	
-	#install cpanm to installed perl
+	#install cpanm to installed Perl
 	if ($perl_install_flag == 1) {
 		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
 		exec_cmd ($cmd_cpanm, $param_href, "cpanm install");
@@ -461,6 +493,17 @@ sub install_perl {
 		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
 		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
 	}
+
+	#install cpanm to installed cperl
+	if ($perl_install_flag == 1 and $cperl == 1) {
+		my $cmd_cpan = q{$SHELL -lc "perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
+		exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
+
+		# rehash after cpanm installation
+		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+	}
+
 
 	#ask to migrate modules from old Perl to new Perl
 	my $cmd_mig = qq{plenv migrate-modules -n $old_perl_ver $perl_ver2};
