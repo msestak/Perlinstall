@@ -31,6 +31,10 @@ Perlinstall - is installation script (modulino) that installs Perl using plenv. 
     Perlinstall -h
     Perlinstall -m
 
+# ACKNOWLEDGMENTS
+
+The subs prompt() and \_is\_interactive() are borrowed from [IO::Prompt::Tiny](https://metacpan.org/pod/IO::Prompt::Tiny) (copied and not required because I couldn't afford non-core dependency). The are based on [ExtUtils::MakeMaker](https://metacpan.org/pod/ExtUtils::MakeMaker) and [IO::Interactive::Tiny](https://metacpan.org/pod/IO::Interactive::Tiny) (which is based on [IO::Interactive](https://metacpan.org/pod/IO::Interactive)). Thank you to the authors of those modules.
+
 # LICENSE
 
 Copyright (C) Martin Sebastijan Šestak.

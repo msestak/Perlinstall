@@ -70,11 +70,14 @@ sub run {
 
     foreach my $mode (@mode) {
         if ( exists $dispatch{$mode} ) {
-			#print "RUNNING ACTION for mode: $mode\n";
+			my $t0 = time;
+			print "RUNNING ACTION for mode: $mode\n";
 
             $dispatch{$mode}->( $param_href );
 
-			#print "TIME when finished for: $mode\n";
+			my $t1 = time;
+			my $elapsed = $t1 - $t0;
+			print "TIME when finished for: $mode is:$elapsed sec\n";
         }
         else {
             #complain if mode misspelled or just plain wrong
@@ -387,7 +390,7 @@ sub install_perl {
 		my $cmd_plenv_ver2 = q{$SHELL -lc "plenv --version"};
 		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver2, $param_href );
 		if ($exit_plenv_ver2 == 0) {
-			print "We have sourced $stdout_plenv_ver2\n";
+			print "We have sourced $stdout_plenv_ver2";
 			$plenv_source_flag = 1;
 		}
 		else {
@@ -408,6 +411,7 @@ sub install_perl {
 	}
 
 	#install cperl if requested (without threads only)
+	my $cperl_ver;
 	my $perl_install_flag = 0;
 	if ($cperl) {
 
@@ -417,7 +421,6 @@ sub install_perl {
 		exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
 		exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
 
-		my $cperl_ver;
 		if ($Perl_ver) {
 			$cperl_ver = "cperl-${Perl_ver}";
 		}
@@ -453,6 +456,24 @@ sub install_perl {
 		}
 	}
 
+	#hack Safe.pm to enable installation of and working cpanm
+	my $safe_lib = catfile("$ENV{HOME}", '/.plenv/versions/', "$cperl_ver", 'lib', "$Perl_ver", 'Safe.pm');
+	print "$safe_lib\n";
+	open my $fh_safe_r, "<", $safe_lib or die "can't open $safe_lib for reading:$!";
+	open my $fh_safe_w, ">", $safe_lib or die "can't open $safe_lib for writing:$!";
+	while (<$fh_safe_r>) {
+		chomp;
+		if (/2.39_01c/) {
+			print {$fh_safe_w} '$Safe::', 'VERSION = "2.39_02c";', "\n";   #split this line else it evaluates
+		}
+		elsif ( m/use Opcode 1.01, qw\(/) {
+			print {$fh_safe_w} 'use Opcode qw(', "\n";
+		}
+		else {
+			print {$fh_safe_w} "$_\n";
+		}
+	}
+	print "$safe_lib modified. Try to install cpanm.\n";
 
 	
 	#ask to choose which Perl to install
@@ -481,6 +502,7 @@ sub install_perl {
 		my ($stdout_perl, $stderr_perl, $exit_perl) = capture_output( $cmd_install, $param_href );
 		if ($exit_perl == 0) {
 			$perl_install_flag = 1;
+			print "Installed Perl-${Perl_ver}\n";
 		
 			#finish installation, set perl as global
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
@@ -528,6 +550,7 @@ sub install_perl {
 		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = capture_output( $cmd_cpanm, $param_href );
 		if ($exit_cpanm == 0) {
 			$cpanm_install_flag = 1;
+			print "cpanm installed through plenv\n";
 
 			# rehash after cpanm installation
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
@@ -550,8 +573,8 @@ sub install_perl {
 	print "To migrate modules from old Perl to new Perl run:\n$cmd_mig\n";
 
 	#restarting shell to see new perl
-	print "Restarting shell to see new Perl...\n";
-	my $cmd_shell = exec( '$SHELL -l' );
+	#print "Restarting shell to see new Perl...\n";
+	#my $cmd_shell = exec( '$SHELL -l' );
 
     return;
 }
@@ -639,6 +662,10 @@ Perlinstall - is installation script (modulino) that installs Perl using plenv. 
  For help write:
  Perlinstall -h
  Perlinstall -m
+
+=head1 ACKNOWLEDGMENTS
+
+The subs prompt() and _is_interactive() are borrowed from L<IO::Prompt::Tiny> (copied and not required because I couldn't afford non-core dependency). The are based on L<ExtUtils::MakeMaker> and L<IO::Interactive::Tiny> (which is based on L<IO::Interactive>). Thank you to the authors of those modules.
 
 =head1 LICENSE
 
