@@ -418,7 +418,14 @@ sub install_perl {
 	if ($cperl) {
 
 		#install OpenSSL library to fetch cperl archive
-		my $cmd_ssl = qq{sudo $installer install -y openssl-devel};
+		#libssl-dev
+		my $cmd_ssl;
+		if ($installer eq 'yum') {
+			$cmd_ssl = qq{sudo $installer install -y openssl-devel};
+		}
+		else {
+			$cmd_ssl = qq{sudo $installer install -y libssl-dev};
+		}
 		my $cmd_ssl2 = q{cpanm -n IO::Socket::SSL};
 		exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
 		exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
