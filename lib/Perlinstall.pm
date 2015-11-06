@@ -236,70 +236,9 @@ sub install_perl {
     my $Perl_ver= $param_href->{perl};
 	my $shell = $ENV{SHELL};   #to be used in commands
 
-	if ($sudo) {
-		print "Working with sudo permissions!\n";
-	}
-	else {
-		print "Working without sudo (which is fine if you have git and essential build tools like gcc...).\n";
-	}
+	#install prerequisites for Perl installation (git, make, and gcc)
+	my %flags = _install_prereq($param_href);
 
-	#install prerequisites for plenv
-	my $installer = do {
-		if    (-e '/etc/debian_version') { 'apt-get' }
-		elsif (-e '/etc/centos-release') { 'yum' }
-		elsif (-e '/etc/redhat-release') { 'yum' }
-		else                             { 'yum' }
-	};
-
-	#install git, basic Development tools
-	my $git_flag = 0;
-    my $cmd_check_git = 'git --version';
-    my ($stdout_check_git, $stderr_check_git, $exit_check_git) = capture_output( $cmd_check_git, $param_href );
-	if ($exit_check_git == 0) {
-		$git_flag = 1;
-		print "Great. You have git.\n";
-	}
-	my $gcc_flag = 0;
-    my $cmd_check_gcc = 'gcc --version';
-    my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = capture_output( $cmd_check_gcc, $param_href );
-	if ($exit_check_gcc == 0) {
-		$gcc_flag = 1;
-		print "Great. You have gcc.\n";
-	}
-	my $make_flag = 0;
-    my $cmd_check_make = 'make --version';
-    my ($stdout_check_make, $stderr_check_make, $exit_check_make) = capture_output( $cmd_check_make, $param_href );
-	if ($exit_check_make == 0) {
-		$make_flag = 1;
-		print "Great. You have make. Continuing with plenv install.\n";
-	}
-
-	#install git and development tools if missing
-	if ($git_flag == 0) {
-		if ($sudo == 1) {
-			my $cmd_git = "sudo $installer -y install git";
-			my $exit_git = exec_cmd($cmd_git, $param_href, 'git install');
-			$git_flag = 1 if $exit_git == 0;
-		}
-		else {
-			die "git missing. You should first install git or try again with --sudo option if you have sudo permissions :)";
-		}
-	}
-	if ($gcc_flag == 0 or $make_flag == 0) {
-		if ( ($sudo == 1) and ($installer eq 'yum') ) {
-			my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
-			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'Development tools install');
-			if ($exit_tools == 0) { $gcc_flag = 1; $make_flag = 1;}
-		}
-		elsif ( ($sudo == 1) and ($installer eq 'apt-get') ) {
-			my $cmd_tools = q{sudo apt-get install build-essential};
-			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
-			if ($exit_tools == 0) { $gcc_flag = 1; $make_flag = 1;}
-		}
-		else {
-			die "gcc or make missing. You should first install them or try again with --sudo option if you have sudo permissions :)";
-		}
-	}
 
     #check perl version
 	my $old_perl_ver;
@@ -356,7 +295,7 @@ sub install_perl {
 
 	#checking if plenv settings in place
 	my $bash_profile;
-	if ($installer eq 'yum') {   #on CentOS
+	if ($flags{installer} eq 'yum') {   #on CentOS
 		$bash_profile = catfile("$ENV{HOME}", '.bash_profile');
 	}
 	else {   #on Ubuntu
@@ -371,7 +310,7 @@ sub install_perl {
 	my $plenv_source_flag = 0;
 	if (!defined $plenv_match) {
 		my ($cmd_path, $cmd_eval, $cmd_exec);
-		if ($installer eq 'yum') {   #on CentOS
+		if ($flags{installer} eq 'yum') {   #on CentOS
 			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
 			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
 			$cmd_exec = q{source $HOME/.bash_profile};
@@ -420,11 +359,11 @@ sub install_perl {
 		#install OpenSSL library to fetch cperl archive
 		#libssl-dev
 		my $cmd_ssl;
-		if ($installer eq 'yum') {
-			$cmd_ssl = qq{sudo $installer install -y openssl-devel};
+		if ($flags{installer} eq 'yum') {
+			$cmd_ssl = qq{sudo $flags{installer} install -y openssl-devel};
 		}
 		else {
-			$cmd_ssl = qq{sudo $installer install -y libssl-dev};
+			$cmd_ssl = qq{sudo $flags{installer} install -y libssl-dev};
 		}
 		my $cmd_ssl2 = q{cpanm -n IO::Socket::SSL};
 		exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
@@ -597,6 +536,93 @@ sub install_perl {
 	#my $cmd_shell = exec( '$SHELL -l' );
 
     return;
+}
+
+
+### INTERNAL UTILITY ###
+# Usage      : _install_prereq()
+# Purpose    : installs prerequisites for installing Perl (git, gcc, make)
+# Returns    : hash_ref with flags
+# Parameters : $param_href
+# Throws     : dies if not sudo permissions
+# Comments   : first part of install_perl() mode
+# See Also   : install_perl() mode
+sub _install_prereq {
+    die('_install_prereq() needs $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+	my %flags;
+
+	if ($param_href->{sudo}) {
+		print "Working with sudo permissions!\n";
+	}
+	else {
+		print "Working without sudo, which is fine if you have git and essential build tools like gcc and make...).\n";
+	}
+
+	#install prerequisites for plenv
+	$flags{installer} = do {
+		if    (-e '/etc/debian_version') { 'apt-get' }
+		elsif (-e '/etc/centos-release') { 'yum' }
+		elsif (-e '/etc/redhat-release') { 'yum' }
+		else                             { 'yum' }
+	};
+
+	#install git, basic Development tools
+	$flags{git} = 0;
+    my $cmd_check_git = 'git --version';
+    my ($stdout_check_git, $stderr_check_git, $exit_check_git) = capture_output( $cmd_check_git, $param_href );
+	if ($exit_check_git == 0) {
+		$flags{git} = 1;
+		print "Great. You have git.\n";
+	}
+	$flags{gcc} = 0;
+    my $cmd_check_gcc = 'gcc --version';
+    my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = capture_output( $cmd_check_gcc, $param_href );
+	if ($exit_check_gcc == 0) {
+		$flags{gcc} = 1;
+		print "Great. You have gcc.\n";
+	}
+	$flags{make} = 0;
+    my $cmd_check_make = 'make --version';
+    my ($stdout_check_make, $stderr_check_make, $exit_check_make) = capture_output( $cmd_check_make, $param_href );
+	if ($exit_check_make == 0) {
+		$flags{make} = 1;
+		print "Great. You have make. Continuing with plenv install.\n";
+	}
+
+	#install git and development tools if missing
+	if ($flags{git} == 0) {
+		if ($param_href->{sudo} == 1) {
+			my $cmd_git = "sudo $flags{installer} -y install git";
+			my $exit_git = exec_cmd($cmd_git, $param_href, 'git install');
+			$flags{git} = 1 if $exit_git == 0;
+		}
+		else {
+			die "git missing. You should first install git or try again with --sudo option if you have sudo permissions :)";
+		}
+	}
+	if ($flags{gcc} == 0 or $flags{make} == 0) {
+		if ( ($param_href->{sudo} == 1) and ($flags{installer} eq 'yum') ) {
+			my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
+			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'Development tools install');
+			if ($exit_tools == 0) { $flags{gcc} = 1; $flags{make} = 1;}
+		}
+		elsif ( ($param_href->{sudo} == 1) and ($flags{installer} eq 'apt-get') ) {
+			my $cmd_tools = q{sudo apt-get install build-essential};
+			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
+			if ($exit_tools == 0) { $flags{gcc} = 1; $flags{make} = 1;}
+		}
+		else {
+			if ($flags{gcc} == 0) {
+				die "gcc missing. You should first install gcc or try again with --sudo option if you have sudo permissions :)";
+			}
+			else {
+				die "make missing. You should first install make or try again with --sudo option if you have sudo permissions :)";
+			}
+		}
+	}
+
+    return \%flags;
 }
 
 
