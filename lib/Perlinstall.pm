@@ -231,11 +231,6 @@ sub install_perl {
     my ( $param_href ) = @_;
     my $sudo    = $param_href->{sudo};
     my $verbose = $param_href->{verbose};
-    my $cperl   = $param_href->{cperl};
-    my $threads = $param_href->{threads};
-    my $migrate = $param_href->{migrate};
-    my $Perl_ver= $param_href->{perl};
-	my $shell = $ENV{SHELL};   #to be used in commands
 
 	#install prerequisites for Perl installation (git, make, and gcc)
 	my %flags = _install_prereq($param_href);
@@ -258,132 +253,52 @@ sub install_perl {
 	}
 
 	#install cperl if requested (without threads only)
-	my $cperl_ver;
-	my $perl_install_flag = 0;
-	if ($cperl) {
-
-		#install OpenSSL library to fetch cperl archive
-		#libssl-dev
-		my $cmd_ssl;
-		if ($flags{installer} eq 'yum') {
-			$cmd_ssl = qq{sudo $flags{installer} install -y openssl-devel};
-		}
-		else {
-			$cmd_ssl = qq{sudo $flags{installer} install -y libssl-dev};
-		}
-		my $cmd_ssl2 = q{cpanm -n IO::Socket::SSL};
-		_exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
-		_exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
-
-		if ($Perl_ver) {
-			$cperl_ver = "cperl-${Perl_ver}";
-		}
-		else {
-			$cperl_ver = 'cperl-5.22.1';
-		}
-		
-		#build a command and install cperl
-		my $cmd_cperl = qq{plenv install -j 4 -Dusedevel -Dusecperl --as $cperl_ver https://github.com/perl11/cperl/archive/${cperl_ver}.tar.gz};
-		my ($stdout_cperl, $stderr_cperl, $exit_cperl) = _capture_output( $cmd_cperl, $param_href );
-		if ($exit_cperl == 0) {
-			print "Installed $cperl_ver\n";
-			
-			#finish installation, set perl as global
-			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			my $cmd_global = qq{\$SHELL -lc "plenv global $cperl_ver"};
-			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			_exec_cmd ($cmd_global, $param_href, "Perl cperl set to global (plenv global)");
-
-				#set through %ENV if plenv global didn't work
-				if (defined $ENV{PLENV_VERSION}) {
-					if ($ENV{PLENV_VERSION} eq "$cperl_ver") {
-						print "Perl $cperl_ver set to global. Whoa:)\n";
-					}
-					else {
-						#set it yourself
-						$ENV{PLENV_VERSION} = "$cperl_ver";
-						print "Perl is now $cperl_ver. For real this time:)\n";
-					}
-				}
-	
-			$perl_install_flag = 1;
-		}
-	}
-
-	#hack Safe.pm to enable installation of and working cpanm
-	if ($cperl and $perl_install_flag == 1) {
-		(my $ver) = $cperl_ver =~ m/\Acperl-(.+)\z/;
-		my $safe_lib = catfile("$ENV{HOME}", '/.plenv/versions/', "$cperl_ver", 'lib', "$ver", 'Safe.pm');
-		if (-f $safe_lib) {
-			#print "$safe_lib\n";
-			my $safe_lib_new = $safe_lib . 'new';
-			open my $fh_safe_r, "<", $safe_lib or die "can't open $safe_lib for reading:$!";
-			open my $fh_safe_w, ">", $safe_lib_new or die "can't open $safe_lib for writing:$!";
-			while (<$fh_safe_r>) {
-				chomp;
-				if (/2.39_01c/) {
-					print {$fh_safe_w} '$Safe::', 'VERSION = "2.39_02c";', "\n";   #split this line else it evaluates
-				}
-				elsif ( m/use Opcode 1.01, qw\(/) {
-					print {$fh_safe_w} 'use Opcode qw(', "\n";
-				}
-				else {
-					print {$fh_safe_w} "$_\n";
-				}
-			}
-			#rename new file with old file
-			move("$safe_lib_new", "$safe_lib") or die "Rename failed: $!";
-			print "$safe_lib modified. Try to install cpanm.\n";
-		}
-		else {
-			print "$safe_lib not found.\n";
-		}
-	}
+	%flags = _install_cperl($param_href, \%flags);
 
 	
 	#ask to choose which Perl to install
 	my $cmd_install;
-	if ($perl_install_flag == 0 and ($flags{plenv} == 1 or $flags{plenv_profile} == 1) ) {
+	if ($flags{perl_installed} == 0 and ($flags{plenv} == 1 or $flags{plenv_profile} == 1) ) {
 
 		#prompt for Perl version if not given on command prompt
-		if (!$Perl_ver) {
-			$Perl_ver = prompt ('Choose which Perl version you want to install>', '5.22.0');
+		if (!$param_href->{perl}) {
+			$param_href->{perl} = prompt ('Choose which Perl version you want to install>', '5.22.0');
 		}
 
 		#prompt for threads option if not given on command prompt
-		if (!$threads) {
-			$threads = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
+		if (!$param_href->{threads}) {
+			$param_href->{threads} = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
 		}
 
 		#make install command
-		if ($threads eq 'nothreads') {
-			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc $Perl_ver"};
+		if ($param_href->{threads} eq 'nothreads') {
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc $param_href->{perl}"};
 		}
 		else {
-			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc -D usethreads $Perl_ver"};
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc -D usethreads $param_href->{perl}"};
 		}
 
 		#install Perl
 		my ($stdout_perl, $stderr_perl, $exit_perl) = _capture_output( $cmd_install, $param_href );
 		if ($exit_perl == 0) {
-			$perl_install_flag = 1;
-			print "Installed Perl-${Perl_ver}\n";
+			$flags{perl_installed} = 1;
+			print "Installed Perl-", "$param_href->{perl}\n";
 		
 			#finish installation, set perl as global
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			my $cmd_global = qq{\$SHELL -lc "plenv global $Perl_ver"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global $param_href->{perl}"};
 			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			_exec_cmd ($cmd_global, $param_href, "Perl $Perl_ver set to global (through plenv global)");
+			_exec_cmd ($cmd_global, $param_href, "Perl $param_href->{perl} set to global (through plenv global)");
 	
 			#set through %ENV if plenv global didn't work
 			if (defined $ENV{PLENV_VERSION}) {
-				if ($ENV{PLENV_VERSION} eq $Perl_ver) {
-					#print "Perl $Perl_ver set to global. Whoa:)\n";
+				if ($ENV{PLENV_VERSION} eq $param_href->{perl}) {
+					#print "Perl $param_href->{perl} set to global. Whoa:)\n";
 				}
 				else {
 					#set it yourself
-					$ENV{PLENV_VERSION} = $Perl_ver;
-					print "Perl $Perl_ver set to global. For real this time:)\n";
+					$ENV{PLENV_VERSION} = $param_href->{perl};
+					print "Perl $param_href->{perl} set to global. For real this time:)\n";
 				}
 			}
 		}
@@ -391,7 +306,7 @@ sub install_perl {
 	
 	#check if right Perl installed
 	my $perl_ver2;
-	if ($perl_install_flag == 1) {
+	if ($flags{perl_installed} == 1) {
 		my $cmd_perl_ver2 = q{$SHELL -lc "perl -v"};
 		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = _capture_output( $cmd_perl_ver2, $param_href );
 		if ($exit_ver2 == 0) {
@@ -410,7 +325,7 @@ sub install_perl {
 	
 	#install cpanm to installed Perl
 	my $cpanm_install_flag = 0;
-	if ($perl_install_flag == 1 and $cperl == 0) {
+	if ($flags{perl_installed} == 1 and $param_href->{cperl} == 0) {
 		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
 		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = _capture_output( $cmd_cpanm, $param_href );
 		if ($exit_cpanm == 0) {
@@ -424,7 +339,7 @@ sub install_perl {
 	}
 
 	#install cpanm to installed cperl because cperl has bug with cpanm installation. At least cperl-5.22.1.
-	if ($perl_install_flag == 1 and $cperl == 1 and $cpanm_install_flag == 0) {
+	if ($flags{perl_installed} == 1 and $param_href->{cperl} == 1 and $cpanm_install_flag == 0) {
 		my $cmd_cpan = q{$SHELL -lc "yes|perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
 		_exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
 
@@ -572,7 +487,7 @@ sub _check_perl_version {
 # Comments   : second part of install_perl() mode
 # See Also   : install_perl() mode
 sub _install_plenv {
-    die('_install_plenv() needs $param_href') unless @_ == 1;
+    die('_install_plenv() needs $param_href') unless @_ == 2;
     my ($param_href, $flags_href) = @_;
 	my %flags = %{$flags_href};
 
@@ -669,8 +584,102 @@ sub _install_plenv {
 }
 
 
+### INTERNAL UTILITY ###
+# Usage      : _install_cperl()
+# Purpose    : installs cperl and applies hack to Safe.pm
+# Returns    : hash with flags
+# Parameters : ($param_href, $flags_href)
+# Throws     : 
+# Comments   : third part of install_perl() mode
+# See Also   : install_perl() mode
+sub _install_cperl {
+    die('_install_cperl() needs $param_href') unless @_ == 2;
+    my ($param_href, $flags_href) = @_;
+	my %flags = %{$flags_href};
 
+	#install cperl if requested (without threads only)
+	$flags{perl_installed} = 0;
+	if ($param_href->{cperl}) {
+		#install OpenSSL library to fetch cperl archive
+		my $cmd_ssl;
+		if ($flags{installer} eq 'yum') {
+			$cmd_ssl = qq{sudo $flags{installer} install -y openssl-devel};
+		}
+		else {
+			$cmd_ssl = qq{sudo $flags{installer} install -y libssl-dev};
+		}
+		my $cmd_ssl2 = q{cpanm -n IO::Socket::SSL};
+		_exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
+		_exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
 
+		#define cperl version
+		if ($param_href->{perl}) {   #from --perl on command line
+			$flags{cperl} = "cperl-" . "$param_href->{perl}";
+		}
+		else {   #default (only availabale atm)
+			$flags{cperl} = 'cperl-5.22.1';
+		}
+		
+		#build a command and install cperl
+		my $cmd_cperl = qq{plenv install -j 4 -Dusedevel -Dusecperl --as $flags{cperl} https://github.com/perl11/cperl/archive/${flags{cperl}}.tar.gz};
+		my ($stdout_cperl, $stderr_cperl, $exit_cperl) = _capture_output( $cmd_cperl, $param_href );
+		if ($exit_cperl == 0) {
+			print "Installed $flags{cperl}\n";
+			
+			#finish installation, set perl as global
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global $flags{cperl}"};
+			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			_exec_cmd ($cmd_global, $param_href, "Perl cperl set to global (plenv global)");
+
+				#set through %ENV if plenv global didn't work
+				if (defined $ENV{PLENV_VERSION}) {
+					if ($ENV{PLENV_VERSION} eq "$flags{cperl}") {
+						print "Perl $flags{cperl} set to global. Whoa:)\n";
+					}
+					else {
+						#set it yourself
+						$ENV{PLENV_VERSION} = "$flags{cperl}";
+						print "Perl is now $flags{cperl}. For real this time:)\n";
+					}
+				}
+	
+			$flags{perl_installed} = 1;
+		}
+	}
+
+	#hack Safe.pm to enable installation of and working cpanm
+	if ($param_href->{cperl} and $flags{perl_installed} == 1) {
+		(my $ver) = $flags{cperl} =~ m/\Acperl-(.+)\z/;
+		my $safe_lib = catfile("$ENV{HOME}", '/.plenv/versions/', "$flags{cperl}", 'lib', "$ver", 'Safe.pm');
+		if (-f $safe_lib) {
+			my $safe_lib_new = $safe_lib . 'new';
+			open my $fh_safe_r, "<", $safe_lib     or die "can't open $safe_lib for reading:$!";
+			open my $fh_safe_w, ">", $safe_lib_new or die "can't open $safe_lib for writing:$!";
+
+			while (<$fh_safe_r>) {
+				chomp;
+				if (/2.39_01c/) {
+					print {$fh_safe_w} '$Safe::', 'VERSION = "2.39_02c";', "\n";   #split this line else it evaluates
+				}
+				elsif ( m/use Opcode 1.01, qw\(/) {
+					print {$fh_safe_w} 'use Opcode qw(', "\n";
+				}
+				else {
+					print {$fh_safe_w} "$_\n";
+				}
+			}
+			#rename new file with old file
+			move("$safe_lib_new", "$safe_lib") or die "Rename failed: $!";
+			print "$safe_lib modified. Try to install cpanm.\n";
+		}
+		else {
+			print "$safe_lib not found.\n";
+		}
+	}
+
+	return %flags;
+}
 
 
 
