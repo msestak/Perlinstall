@@ -4,17 +4,18 @@ Perlinstall - is installation script (modulino) that installs Perl using plenv. 
 
 # SYNOPSIS
 
+    #first install in clean environment
+    #sudo needed to install git, gcc and make
+    Perlinstall.pm --mode=install_perl --perl=5.12.1 -t nothreads --sudo
+
     #if git installed (prompt for perl version and threads support)
     Perlinstall --mode=install_perl
 
     #full verbose with threads and no prompt
-    ./Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads=usethreads
-
-    #sudo needed to install git, gcc and make
-    ./Perlinstall.pm --mode=install_perl --sudo
+    Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads=usethreads
 
     #install cperl 5.22.1 with nothreads
-    ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1 --threads=nothreads
+    ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1
 
 # DESCRIPTION
 

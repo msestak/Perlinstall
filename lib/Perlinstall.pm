@@ -10,6 +10,7 @@ use Getopt::Long;
 use Pod::Usage;
 use IPC::Open3;
 use Data::Dumper;
+use File::Copy;
 use Exporter qw/import/;
 
 our $VERSION = "0.001";
@@ -390,7 +391,8 @@ sub install_perl {
 		my $cmd_plenv_ver2 = q{$SHELL -lc "plenv --version"};
 		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver2, $param_href );
 		if ($exit_plenv_ver2 == 0) {
-			print "We have sourced $stdout_plenv_ver2";
+			chomp $stdout_plenv_ver2;
+			print "We have sourced $stdout_plenv_ver2.\n";
 			$plenv_source_flag = 1;
 		}
 		else {
@@ -457,23 +459,34 @@ sub install_perl {
 	}
 
 	#hack Safe.pm to enable installation of and working cpanm
-	my $safe_lib = catfile("$ENV{HOME}", '/.plenv/versions/', "$cperl_ver", 'lib', "$Perl_ver", 'Safe.pm');
-	print "$safe_lib\n";
-	open my $fh_safe_r, "<", $safe_lib or die "can't open $safe_lib for reading:$!";
-	open my $fh_safe_w, ">", $safe_lib or die "can't open $safe_lib for writing:$!";
-	while (<$fh_safe_r>) {
-		chomp;
-		if (/2.39_01c/) {
-			print {$fh_safe_w} '$Safe::', 'VERSION = "2.39_02c";', "\n";   #split this line else it evaluates
-		}
-		elsif ( m/use Opcode 1.01, qw\(/) {
-			print {$fh_safe_w} 'use Opcode qw(', "\n";
+	if ($cperl and $perl_install_flag == 1) {
+		(my $ver) = $cperl_ver =~ m/\Acperl-(.+)\z/;
+		my $safe_lib = catfile("$ENV{HOME}", '/.plenv/versions/', "$cperl_ver", 'lib', "$ver", 'Safe.pm');
+		if (-f $safe_lib) {
+			#print "$safe_lib\n";
+			my $safe_lib_new = $safe_lib . 'new';
+			open my $fh_safe_r, "<", $safe_lib or die "can't open $safe_lib for reading:$!";
+			open my $fh_safe_w, ">", $safe_lib_new or die "can't open $safe_lib for writing:$!";
+			while (<$fh_safe_r>) {
+				chomp;
+				if (/2.39_01c/) {
+					print {$fh_safe_w} '$Safe::', 'VERSION = "2.39_02c";', "\n";   #split this line else it evaluates
+				}
+				elsif ( m/use Opcode 1.01, qw\(/) {
+					print {$fh_safe_w} 'use Opcode qw(', "\n";
+				}
+				else {
+					print {$fh_safe_w} "$_\n";
+				}
+			}
+			#rename new file with old file
+			move("$safe_lib_new", "$safe_lib") or die "Rename failed: $!";
+			print "$safe_lib modified. Try to install cpanm.\n";
 		}
 		else {
-			print {$fh_safe_w} "$_\n";
+			print "$safe_lib not found.\n";
 		}
 	}
-	print "$safe_lib modified. Try to install cpanm.\n";
 
 	
 	#ask to choose which Perl to install
@@ -545,12 +558,12 @@ sub install_perl {
 	
 	#install cpanm to installed Perl
 	my $cpanm_install_flag = 0;
-	if ($perl_install_flag == 1) {
+	if ($perl_install_flag == 1 and $cperl == 0) {
 		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
 		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = capture_output( $cmd_cpanm, $param_href );
 		if ($exit_cpanm == 0) {
 			$cpanm_install_flag = 1;
-			print "cpanm installed through plenv\n";
+			print "cpanm installed through plenv.\n";
 
 			# rehash after cpanm installation
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
@@ -636,17 +649,18 @@ Perlinstall - is installation script (modulino) that installs Perl using plenv. 
 
 =head1 SYNOPSIS
 
+ #first install in clean environment
+ #sudo needed to install git, gcc and make
+ Perlinstall.pm --mode=install_perl --perl=5.12.1 -t nothreads --sudo
+
  #if git installed (prompt for perl version and threads support)
  Perlinstall --mode=install_perl
 
  #full verbose with threads and no prompt
- ./Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads=usethreads
-
- #sudo needed to install git, gcc and make
- ./Perlinstall.pm --mode=install_perl --sudo
+ Perlinstall.pm --mode=install_perl -v -v --perl=5.20.0 --threads=usethreads
 
  #install cperl 5.22.1 with nothreads
- ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1 --threads=nothreads
+ ./Perlinstall.pm --mode=install_perl --cperl --perl=5.22.1
 
 =head1 DESCRIPTION
 
