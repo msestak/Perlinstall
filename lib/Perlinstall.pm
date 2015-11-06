@@ -18,9 +18,10 @@ our $VERSION = "0.001";
 our @EXPORT_OK = qw{
   run
   get_parameters_from_cmd
-  capture_output
-  exec_cmd
+  _capture_output
+  _exec_cmd
   install_perl
+  _install_prereq
   _is_interactive
   prompt
 
@@ -157,15 +158,15 @@ sub get_parameters_from_cmd {
 
 
 ### INTERNAL UTILITY ###
-# Usage      : my ($stdout, $stderr, $exit) = capture_output( $cmd, $param_href );
+# Usage      : my ($stdout, $stderr, $exit) = _capture_output( $cmd, $param_href );
 # Purpose    : accepts command, executes it, captures output and returns it in vars
 # Returns    : STDOUT, STDERR and EXIT as vars
 # Parameters : ($cmd_to_execute)
 # Throws     : 
 # Comments   : second param is verbose flag (default off)
 # See Also   :
-sub capture_output {
-    croak( 'capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
+sub _capture_output {
+    croak( '_capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
     my ($cmd, $param_href) = @_;
 
     my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : 0;   #default is silent
@@ -192,21 +193,21 @@ sub capture_output {
 
 
 ### INTERNAL UTILITY ###
-# Usage      : exec_cmd($cmd_git, $param_href);
+# Usage      : _exec_cmd($cmd_git, $param_href);
 # Purpose    : accepts command, executes it and checks for success
 # Returns    : prints info
 # Parameters : ($cmd_to_execute, $param_href)
 # Throws     : 
 # Comments   : second param is verbose flag (default off)
 # See Also   :
-sub exec_cmd {
-	croak( 'exec_cmd() needs a $cmd' ) unless (@_ == 2 or 3);
+sub _exec_cmd {
+	croak( '_exec_cmd() needs a $cmd' ) unless (@_ == 2 or 3);
     my ($cmd, $param_href, $cmd_info) = @_;
 	if (!defined $cmd_info) {
 		($cmd_info)  = $cmd =~ m/\A(\w+)/;
 	}
 
-    my ($stdout, $stderr, $exit) = capture_output( $cmd, $param_href );
+    my ($stdout, $stderr, $exit) = _capture_output( $cmd, $param_href );
     if ($exit == 0 ) {
         print "$cmd_info success!\n";
     }
@@ -240,112 +241,17 @@ sub install_perl {
 	my %flags = _install_prereq($param_href);
 
 
-    #check perl version
-	my $old_perl_ver;
-    my $cmd_perl_ver = 'perl -v';
-    my ($stdout_perl_ver, $stderr_perl_ver, $exit_perl_ver) = capture_output( $cmd_perl_ver, $param_href );
-    if ($exit_perl_ver == 0) {
-        if ( $stdout_perl_ver =~ m{v(\d+\.(\d+)\.\d+)}g ) {
-           $old_perl_ver = $1;
-            print "We have Perl $old_perl_ver installed.\n";
-		}
-		else {
-			print "Couldn't find Perl version.\n";
-		}
-	}
-	else {
-		print "Strange. Perl is not installed. No problem, we will fix that in a moment.\n";
-	}
+    #check existing Perl version
+    $flags{old_perl} = _check_perl_version($param_href);
+
 
 	#check if plenv installed
-	my $plenv_flag = 0;
-    my $cmd_plenv_ver = 'plenv --version';
-    my ($stdout_plenv_ver, $stderr_plenv_ver, $exit_plenv_ver) = capture_output( $cmd_plenv_ver, $param_href );
-    if ($exit_plenv_ver == 0) {
-        print "We have $stdout_plenv_ver";
-		$plenv_flag = 1;
-	}
-	else {
-		print "plenv is not installed, installing now...\n";
-	}
-
-    #start perlenv install
-	if ($plenv_flag == 0) {
-	    my $cmd_plenv = 'git clone git://github.com/tokuhirom/plenv.git ~/.plenv';
-		exec_cmd($cmd_plenv, $param_href, 'plenv install');
-		$plenv_flag = 1;
-	}
-
-	#check if Perl-Build plugin for plenv installed
-	my $perl_build_flag = 0;
-	my $perl_build_dir = catdir("$ENV{HOME}", '/.plenv/plugins/perl-build');
-	if (-d $perl_build_dir and -s $perl_build_dir) {   #directory exists and is not empty
-		$perl_build_flag = 1;
-		print "Perl-Build is installed.\n";
-	}
-	else {
-		print "Perl-Build is not installed, installing now...\n";
-	}
-
-	#installing Perl-Build plugin for install function in plenv
-	if ( ($plenv_flag == 1) and ($perl_build_flag == 0) ) {
-		my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
-		exec_cmd($cmd_perl_build, $param_href, 'Perl-Build install');
-	}
-
-	#checking if plenv settings in place
-	my $bash_profile;
-	if ($flags{installer} eq 'yum') {   #on CentOS
-		$bash_profile = catfile("$ENV{HOME}", '.bash_profile');
-	}
-	else {   #on Ubuntu
-		$bash_profile = catfile("$ENV{HOME}", '.profile');
-	}
-
-	open my $fh, "<", $bash_profile or die "can't open $bash_profile:$!";
-	my $prof = do {local$/; <$fh>};
-	(my $plenv_match) = $prof =~ m/plenv/;
-    
-	#updating .bash_profile for plenv to work
-	my $plenv_source_flag = 0;
-	if (!defined $plenv_match) {
-		my ($cmd_path, $cmd_eval, $cmd_exec);
-		if ($flags{installer} eq 'yum') {   #on CentOS
-			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
-			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
-			$cmd_exec = q{source $HOME/.bash_profile};
-		}
-		else {   #on Ubuntu
-			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.profile};
-			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.profile};
-			$cmd_exec = q{source $HOME/.profile};
-		}
-
-    	exec_cmd ($cmd_path, $param_href, 'export PATH');
-    	exec_cmd ($cmd_eval, $param_href, 'plenv init');
-		sleep 1;
-    	exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
-
-		#checking if sourcing plenv worked
-		my $cmd_plenv_ver2 = q{$SHELL -lc "plenv --version"};
-		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = capture_output( $cmd_plenv_ver2, $param_href );
-		if ($exit_plenv_ver2 == 0) {
-			chomp $stdout_plenv_ver2;
-			print "We have sourced $stdout_plenv_ver2.\n";
-			$plenv_source_flag = 1;
-		}
-		else {
-			die "Sourcing plenv didn't work.\n";
-		}
-	}
-	else {
-		print "$bash_profile is already set for plenv.\n";
-	}
+	%flags = _install_plenv($param_href, \%flags);
 
 	#list all perls available (on verbose only)
-	if ($plenv_flag == 1 or $plenv_source_flag == 1) {
+	if ($flags{plenv} == 1 or $flags{plenv_profile} == 1) {
 		my $cmd_list_perls = q{$SHELL -lc "plenv install --list"};
-		my ($stdout_list, $stderr_list, $exit_list) = capture_output( $cmd_list_perls, $param_href );
+		my ($stdout_list, $stderr_list, $exit_list) = _capture_output( $cmd_list_perls, $param_href );
 		if ($verbose == 1) {
 			print "$stdout_list\n";
 		}
@@ -366,8 +272,8 @@ sub install_perl {
 			$cmd_ssl = qq{sudo $flags{installer} install -y libssl-dev};
 		}
 		my $cmd_ssl2 = q{cpanm -n IO::Socket::SSL};
-		exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
-		exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
+		_exec_cmd ($cmd_ssl, $param_href, "openssl developmental lib installation");
+		_exec_cmd ($cmd_ssl2, $param_href, "perl module IO::Socket::SSL installation");
 
 		if ($Perl_ver) {
 			$cperl_ver = "cperl-${Perl_ver}";
@@ -378,15 +284,15 @@ sub install_perl {
 		
 		#build a command and install cperl
 		my $cmd_cperl = qq{plenv install -j 4 -Dusedevel -Dusecperl --as $cperl_ver https://github.com/perl11/cperl/archive/${cperl_ver}.tar.gz};
-		my ($stdout_cperl, $stderr_cperl, $exit_cperl) = capture_output( $cmd_cperl, $param_href );
+		my ($stdout_cperl, $stderr_cperl, $exit_cperl) = _capture_output( $cmd_cperl, $param_href );
 		if ($exit_cperl == 0) {
 			print "Installed $cperl_ver\n";
 			
 			#finish installation, set perl as global
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
 			my $cmd_global = qq{\$SHELL -lc "plenv global $cperl_ver"};
-			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			exec_cmd ($cmd_global, $param_href, "Perl cperl set to global (plenv global)");
+			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			_exec_cmd ($cmd_global, $param_href, "Perl cperl set to global (plenv global)");
 
 				#set through %ENV if plenv global didn't work
 				if (defined $ENV{PLENV_VERSION}) {
@@ -437,7 +343,7 @@ sub install_perl {
 	
 	#ask to choose which Perl to install
 	my $cmd_install;
-	if ($perl_install_flag == 0 and ($plenv_flag == 1 or $plenv_source_flag == 1) ) {
+	if ($perl_install_flag == 0 and ($flags{plenv} == 1 or $flags{plenv_profile} == 1) ) {
 
 		#prompt for Perl version if not given on command prompt
 		if (!$Perl_ver) {
@@ -458,7 +364,7 @@ sub install_perl {
 		}
 
 		#install Perl
-		my ($stdout_perl, $stderr_perl, $exit_perl) = capture_output( $cmd_install, $param_href );
+		my ($stdout_perl, $stderr_perl, $exit_perl) = _capture_output( $cmd_install, $param_href );
 		if ($exit_perl == 0) {
 			$perl_install_flag = 1;
 			print "Installed Perl-${Perl_ver}\n";
@@ -466,8 +372,8 @@ sub install_perl {
 			#finish installation, set perl as global
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
 			my $cmd_global = qq{\$SHELL -lc "plenv global $Perl_ver"};
-			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			exec_cmd ($cmd_global, $param_href, "Perl $Perl_ver set to global (through plenv global)");
+			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			_exec_cmd ($cmd_global, $param_href, "Perl $Perl_ver set to global (through plenv global)");
 	
 			#set through %ENV if plenv global didn't work
 			if (defined $ENV{PLENV_VERSION}) {
@@ -487,16 +393,16 @@ sub install_perl {
 	my $perl_ver2;
 	if ($perl_install_flag == 1) {
 		my $cmd_perl_ver2 = q{$SHELL -lc "perl -v"};
-		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = capture_output( $cmd_perl_ver2, $param_href );
+		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = _capture_output( $cmd_perl_ver2, $param_href );
 		if ($exit_ver2 == 0) {
 			if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
 				$perl_ver2 = $1;
 				#print "We have Perl $perl_ver2.\n";
-				if ($perl_ver2 eq $old_perl_ver) {
-					print "We didn't switch from $old_perl_ver to newly installed $perl_ver2\n";
+				if ($perl_ver2 eq $flags{old_perl}) {
+					print "We didn't switch from $flags{old_perl} to newly installed $perl_ver2\n";
 				}
 				else {
-					print "We switched from $old_perl_ver to newly installed $perl_ver2\n";
+					print "We switched from $flags{old_perl} to newly installed $perl_ver2\n";
 				}
 			}
 		}
@@ -506,29 +412,29 @@ sub install_perl {
 	my $cpanm_install_flag = 0;
 	if ($perl_install_flag == 1 and $cperl == 0) {
 		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
-		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = capture_output( $cmd_cpanm, $param_href );
+		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = _capture_output( $cmd_cpanm, $param_href );
 		if ($exit_cpanm == 0) {
 			$cpanm_install_flag = 1;
 			print "cpanm installed through plenv.\n";
 
 			# rehash after cpanm installation
 			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
 		}
 	}
 
 	#install cpanm to installed cperl because cperl has bug with cpanm installation. At least cperl-5.22.1.
 	if ($perl_install_flag == 1 and $cperl == 1 and $cpanm_install_flag == 0) {
 		my $cmd_cpan = q{$SHELL -lc "yes|perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
-		exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
+		_exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
 
 		# rehash after cpanm installation
 		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-		exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+		_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
 	}
 
 	#ask to migrate modules from old Perl to new Perl
-	my $cmd_mig = qq{plenv migrate-modules -n $old_perl_ver $perl_ver2};
+	my $cmd_mig = qq{plenv migrate-modules -n $flags{old_perl} $perl_ver2};
 	print "To migrate modules from old Perl to new Perl run:\n$cmd_mig\n";
 
 	#restarting shell to see new perl
@@ -542,7 +448,7 @@ sub install_perl {
 ### INTERNAL UTILITY ###
 # Usage      : _install_prereq()
 # Purpose    : installs prerequisites for installing Perl (git, gcc, make)
-# Returns    : hash_ref with flags
+# Returns    : hash with flags
 # Parameters : $param_href
 # Throws     : dies if not sudo permissions
 # Comments   : first part of install_perl() mode
@@ -570,21 +476,21 @@ sub _install_prereq {
 	#install git, basic Development tools
 	$flags{git} = 0;
     my $cmd_check_git = 'git --version';
-    my ($stdout_check_git, $stderr_check_git, $exit_check_git) = capture_output( $cmd_check_git, $param_href );
+    my ($stdout_check_git, $stderr_check_git, $exit_check_git) = _capture_output( $cmd_check_git, $param_href );
 	if ($exit_check_git == 0) {
 		$flags{git} = 1;
 		print "Great. You have git.\n";
 	}
 	$flags{gcc} = 0;
     my $cmd_check_gcc = 'gcc --version';
-    my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = capture_output( $cmd_check_gcc, $param_href );
+    my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = _capture_output( $cmd_check_gcc, $param_href );
 	if ($exit_check_gcc == 0) {
 		$flags{gcc} = 1;
 		print "Great. You have gcc.\n";
 	}
 	$flags{make} = 0;
     my $cmd_check_make = 'make --version';
-    my ($stdout_check_make, $stderr_check_make, $exit_check_make) = capture_output( $cmd_check_make, $param_href );
+    my ($stdout_check_make, $stderr_check_make, $exit_check_make) = _capture_output( $cmd_check_make, $param_href );
 	if ($exit_check_make == 0) {
 		$flags{make} = 1;
 		print "Great. You have make. Continuing with plenv install.\n";
@@ -594,7 +500,7 @@ sub _install_prereq {
 	if ($flags{git} == 0) {
 		if ($param_href->{sudo} == 1) {
 			my $cmd_git = "sudo $flags{installer} -y install git";
-			my $exit_git = exec_cmd($cmd_git, $param_href, 'git install');
+			my $exit_git = _exec_cmd($cmd_git, $param_href, 'git install');
 			$flags{git} = 1 if $exit_git == 0;
 		}
 		else {
@@ -604,12 +510,12 @@ sub _install_prereq {
 	if ($flags{gcc} == 0 or $flags{make} == 0) {
 		if ( ($param_href->{sudo} == 1) and ($flags{installer} eq 'yum') ) {
 			my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
-			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'Development tools install');
+			my $exit_tools = _exec_cmd($cmd_tools, $param_href, 'Development tools install');
 			if ($exit_tools == 0) { $flags{gcc} = 1; $flags{make} = 1;}
 		}
 		elsif ( ($param_href->{sudo} == 1) and ($flags{installer} eq 'apt-get') ) {
 			my $cmd_tools = q{sudo apt-get install build-essential};
-			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
+			my $exit_tools = _exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
 			if ($exit_tools == 0) { $flags{gcc} = 1; $flags{make} = 1;}
 		}
 		else {
@@ -624,6 +530,155 @@ sub _install_prereq {
 
     return \%flags;
 }
+
+### INTERNAL UTILITY ###
+# Usage      : _check_perl_version()
+# Purpose    : checks Perl version installed and currently active
+# Returns    : Perl version
+# Parameters : $param_href
+# Throws     : notices
+# Comments   : part of install_perl() mode
+# See Also   : install_perl() mode
+sub _check_perl_version {
+    die('_check_perl_version() needs $param_href') unless @_ == 1;
+    my ($param_href) = @_;
+
+	my $perl_installed;
+    my $cmd_perl_ver = 'perl -v';
+    my ($stdout_perl_ver, $stderr_perl_ver, $exit_perl_ver) = _capture_output( $cmd_perl_ver, $param_href );
+    if ($exit_perl_ver == 0) {
+        if ( $stdout_perl_ver =~ m{v(\d+\.(\d+)\.\d+)}g ) {
+            $perl_installed = $1;
+            print "We have Perl $perl_installed installed.\n";
+		}
+		else {
+			print "Couldn't find Perl version.\n";
+		}
+	}
+	else {
+		print "Strange. Perl is not installed. No problem, we will fix that in a moment.\n";
+	}
+
+	return $perl_installed;
+}
+
+
+### INTERNAL UTILITY ###
+# Usage      : _install_plenv()
+# Purpose    : installs plenv and Perl-Build using git and updates config
+# Returns    : hash with flags
+# Parameters : ($param_href, $flags_href)
+# Throws     : 
+# Comments   : second part of install_perl() mode
+# See Also   : install_perl() mode
+sub _install_plenv {
+    die('_install_plenv() needs $param_href') unless @_ == 1;
+    my ($param_href, $flags_href) = @_;
+	my %flags = %{$flags_href};
+
+	#check if plenv installed
+	$flags{plenv} = 0;
+    my $cmd_plenv_ver = 'plenv --version';
+    my ($stdout_plenv_ver, $stderr_plenv_ver, $exit_plenv_ver) = _capture_output( $cmd_plenv_ver, $param_href );
+    if ($exit_plenv_ver == 0) {
+        print "We have $stdout_plenv_ver";
+		$flags{plenv} = 1;
+	}
+	else {
+		print "plenv is not installed, installing now...\n";
+	}
+
+    #start perlenv install
+	if ($flags{plenv} == 0) {
+	    my $cmd_plenv = 'git clone git://github.com/tokuhirom/plenv.git ~/.plenv';
+		my $exit_plenv = _exec_cmd($cmd_plenv, $param_href, 'plenv install');
+		if ($exit_plenv == 0) {
+			$flags{plenv} = 1;
+		}
+	}
+
+	#check if Perl-Build plugin for plenv installed
+	$flags{perl_build} = 0;
+	my $perl_build_dir = catdir("$ENV{HOME}", '/.plenv/plugins/perl-build');
+	if (-d $perl_build_dir and -s $perl_build_dir) {   #directory exists and is not empty
+		$flags{perl_build} = 1;
+		print "Perl-Build is installed.\n";
+	}
+	else {
+		print "Perl-Build is not installed, installing now...\n";
+	}
+
+	#installing Perl-Build plugin for install function in plenv
+	if ( ($flags{plenv} == 1) and ($flags{perl_build} == 0) ) {
+		my $cmd_perl_build = q{git clone git://github.com/tokuhirom/Perl-Build.git ~/.plenv/plugins/perl-build/};
+		my $exit_perl_build = _exec_cmd($cmd_perl_build, $param_href, 'Perl-Build install');
+		if ($exit_perl_build == 0) {
+			$flags{perl_build} = 1;
+		}
+	}
+
+	#checking if plenv settings in place
+	my $bash_profile;
+	if ($flags{installer} eq 'yum') {   #on CentOS
+		$bash_profile = catfile("$ENV{HOME}", '.bash_profile');
+	}
+	else {   #on Ubuntu
+		$bash_profile = catfile("$ENV{HOME}", '.profile');
+	}
+	open my $fh, "<", $bash_profile or die "can't open $bash_profile:$!";
+	my $prof = do {local$/; <$fh>};
+	(my $plenv_match) = $prof =~ m/plenv/;
+
+	#updating .bash_profile for plenv to work
+	$flags{plenv_profile} = 0;
+	if (!defined $plenv_match) {
+		my ($cmd_path, $cmd_eval, $cmd_exec);
+		if ($flags{installer} eq 'yum') {   #on CentOS
+			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
+			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
+			$cmd_exec = q{source $HOME/.bash_profile};
+		}
+		else {   #on Ubuntu
+			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.profile};
+			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.profile};
+			$cmd_exec = q{source $HOME/.profile};
+		}
+
+    	_exec_cmd ($cmd_path, $param_href, 'export PATH');
+    	_exec_cmd ($cmd_eval, $param_href, 'plenv init');
+		sleep 1;
+    	_exec_cmd ($cmd_exec, $param_href, 'sourcing .bash_profile');
+
+		#checking if sourcing plenv worked
+		my $cmd_plenv_ver2 = q{$SHELL -lc "plenv --version"};
+		my ($stdout_plenv_ver2, $stderr_plenv_ver2, $exit_plenv_ver2) = _capture_output( $cmd_plenv_ver2, $param_href );
+		if ($exit_plenv_ver2 == 0) {
+			chomp $stdout_plenv_ver2;
+			print "We have sourced $stdout_plenv_ver2.\n";
+			$flags{plenv_profile} = 1;
+		}
+		else {
+			die "Sourcing plenv didn't work.\n";
+		}
+	}
+	else {
+		print "$bash_profile is already set for plenv.\n";
+	}
+
+	return %flags;
+}
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Copied from ExtUtils::MakeMaker (by many authors)

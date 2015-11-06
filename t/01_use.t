@@ -8,9 +8,10 @@ my $module = 'Perlinstall';
 my @subs = qw( 
   run
   get_parameters_from_cmd
-  capture_output
-  exec_cmd
+  _capture_output
+  _exec_cmd
   install_perl
+  _install_prereq
   _is_interactive
   prompt
 
