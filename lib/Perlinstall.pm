@@ -164,7 +164,7 @@ sub capture_output {
     croak( 'capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
     my ($cmd, $param_href) = @_;
 
-    my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : undef;   #default is silent
+    my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : 0;   #default is silent
     print "Report: COMMAND is: $cmd\n" if $verbose;
 
 	no warnings 'once';
@@ -209,6 +209,7 @@ sub exec_cmd {
 	else {
         print "$cmd_info failed!\n";
 	}
+	return $exit;
 }
 
 
@@ -273,7 +274,8 @@ sub install_perl {
 	if ($git_flag == 0) {
 		if ($sudo == 1) {
 			my $cmd_git = "sudo $installer -y install git";
-			exec_cmd($cmd_git, $param_href, 'git install');
+			my $exit_git = exec_cmd($cmd_git, $param_href, 'git install');
+			$git_flag = 1 if $exit_git == 0;
 		}
 		else {
 			die "git missing. You should first install git or try again with --sudo option if you have sudo permissions :)";
@@ -282,11 +284,13 @@ sub install_perl {
 	if ($gcc_flag == 0 or $make_flag == 0) {
 		if ( ($sudo == 1) and ($installer eq 'yum') ) {
 			my $cmd_tools = q{sudo yum -y groupinstall "Development tools"};
-			exec_cmd($cmd_tools, $param_href, 'Development tools install');
+			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'Development tools install');
+			if ($exit_tools == 0) { $gcc_flag = 1; $make_flag = 1;}
 		}
 		elsif ( ($sudo == 1) and ($installer eq 'apt-get') ) {
 			my $cmd_tools = q{sudo apt-get install build-essential};
-			exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
+			my $exit_tools = exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
+			if ($exit_tools == 0) { $gcc_flag = 1; $make_flag = 1;}
 		}
 		else {
 			die "gcc or make missing. You should first install them or try again with --sudo option if you have sudo permissions :)";
