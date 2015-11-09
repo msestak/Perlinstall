@@ -231,14 +231,14 @@ sub install_perl {
     my ( $param_href ) = @_;
     my $sudo    = $param_href->{sudo};
     my $verbose = $param_href->{verbose};
+	my $t0 = time;
 
 	#install prerequisites for Perl installation (git, make, and gcc)
 	my %flags = _install_prereq($param_href);
 
-
     #check existing Perl version
-    $flags{old_perl} = _check_perl_version($param_href);
-
+	my $cmd_perl_old = q{perl -v};
+    $flags{old_perl} = _check_perl_version($param_href, $cmd_perl_old);
 
 	#check if plenv installed
 	%flags = _install_plenv($param_href, \%flags);
@@ -254,107 +254,35 @@ sub install_perl {
 
 	#install cperl if requested (without threads only)
 	%flags = _install_cperl($param_href, \%flags);
-
 	
 	#ask to choose which Perl to install
-	my $cmd_install;
-	if ($flags{perl_installed} == 0 and ($flags{plenv} == 1 or $flags{plenv_profile} == 1) ) {
-
-		#prompt for Perl version if not given on command prompt
-		if (!$param_href->{perl}) {
-			$param_href->{perl} = prompt ('Choose which Perl version you want to install>', '5.22.0');
-		}
-
-		#prompt for threads option if not given on command prompt
-		if (!$param_href->{threads}) {
-			$param_href->{threads} = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
-		}
-
-		#make install command
-		if ($param_href->{threads} eq 'nothreads') {
-			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc $param_href->{perl}"};
-		}
-		else {
-			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc -D usethreads $param_href->{perl}"};
-		}
-
-		#install Perl
-		my ($stdout_perl, $stderr_perl, $exit_perl) = _capture_output( $cmd_install, $param_href );
-		if ($exit_perl == 0) {
-			$flags{perl_installed} = 1;
-			print "Installed Perl-", "$param_href->{perl}\n";
-		
-			#finish installation, set perl as global
-			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			my $cmd_global = qq{\$SHELL -lc "plenv global $param_href->{perl}"};
-			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-			_exec_cmd ($cmd_global, $param_href, "Perl $param_href->{perl} set to global (through plenv global)");
-	
-			#set through %ENV if plenv global didn't work
-			if (defined $ENV{PLENV_VERSION}) {
-				if ($ENV{PLENV_VERSION} eq $param_href->{perl}) {
-					#print "Perl $param_href->{perl} set to global. Whoa:)\n";
-				}
-				else {
-					#set it yourself
-					$ENV{PLENV_VERSION} = $param_href->{perl};
-					print "Perl $param_href->{perl} set to global. For real this time:)\n";
-				}
-			}
-		}
-	}
+	%flags = _install_perl_ver($param_href, \%flags);
 	
 	#check if right Perl installed
-	my $perl_ver2;
-	if ($flags{perl_installed} == 1) {
-		my $cmd_perl_ver2 = q{$SHELL -lc "perl -v"};
-		my ($stdout_ver2, $stderr_ver2, $exit_ver2) = _capture_output( $cmd_perl_ver2, $param_href );
-		if ($exit_ver2 == 0) {
-			if ( $stdout_ver2 =~ m{v(\d+\.(\d+)\.\d+)}g ) {
-				$perl_ver2 = $1;
-				#print "We have Perl $perl_ver2.\n";
-				if ($perl_ver2 eq $flags{old_perl}) {
-					print "We didn't switch from $flags{old_perl} to newly installed $perl_ver2\n";
-				}
-				else {
-					print "We switched from $flags{old_perl} to newly installed $perl_ver2\n";
-				}
-			}
-		}
+	my $cmd_perl_new = q{$SHELL -lc "perl -v"};
+    $flags{new_perl} = _check_perl_version($param_href, $cmd_perl_new);
+	if ($flags{new_perl} eq $flags{old_perl}) {
+		print "We didn't switch from $flags{old_perl} to newly installed $flags{new_perl}\n";
+	}
+	else {
+		print "We switched from $flags{old_perl} to newly installed $flags{new_perl}\n";
 	}
 	
 	#install cpanm to installed Perl
-	my $cpanm_install_flag = 0;
-	if ($flags{perl_installed} == 1 and $param_href->{cperl} == 0) {
-		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
-		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = _capture_output( $cmd_cpanm, $param_href );
-		if ($exit_cpanm == 0) {
-			$cpanm_install_flag = 1;
-			print "cpanm installed through plenv.\n";
-
-			# rehash after cpanm installation
-			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-		}
-	}
-
-	#install cpanm to installed cperl because cperl has bug with cpanm installation. At least cperl-5.22.1.
-	if ($flags{perl_installed} == 1 and $param_href->{cperl} == 1 and $cpanm_install_flag == 0) {
-		my $cmd_cpan = q{$SHELL -lc "yes|perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
-		_exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
-
-		# rehash after cpanm installation
-		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
-		_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
-	}
+	%flags = _install_cpanm($param_href, \%flags);
 
 	#ask to migrate modules from old Perl to new Perl
-	my $cmd_mig = qq{plenv migrate-modules -n $flags{old_perl} $perl_ver2};
+	my $cmd_mig = qq{plenv migrate-modules -n $flags{old_perl} $flags{new_perl}};
 	print "To migrate modules from old Perl to new Perl run:\n$cmd_mig\n";
 
+	#print time before exit because of exec call
+	my $t1 = time;
+	my $elapsed = $t1 - $t0;
+	print "TIME when finished: $elapsed sec\n";
+
 	#restarting shell to see new perl
-	#print "Restarting shell to see new Perl...\n";
-	#my $cmd_shell = exec( '$SHELL -l' );
+	print "Restarting shell to see new Perl...\n";
+	my $cmd_shell = exec( '$SHELL -l' );
 
     return;
 }
@@ -443,7 +371,7 @@ sub _install_prereq {
 		}
 	}
 
-    return \%flags;
+    return %flags;
 }
 
 ### INTERNAL UTILITY ###
@@ -455,11 +383,10 @@ sub _install_prereq {
 # Comments   : part of install_perl() mode
 # See Also   : install_perl() mode
 sub _check_perl_version {
-    die('_check_perl_version() needs $param_href') unless @_ == 1;
-    my ($param_href) = @_;
+    die('_check_perl_version() needs $param_href') unless @_ == 2;
+    my ($param_href, $cmd_perl_ver) = @_;
 
 	my $perl_installed;
-    my $cmd_perl_ver = 'perl -v';
     my ($stdout_perl_ver, $stderr_perl_ver, $exit_perl_ver) = _capture_output( $cmd_perl_ver, $param_href );
     if ($exit_perl_ver == 0) {
         if ( $stdout_perl_ver =~ m{v(\d+\.(\d+)\.\d+)}g ) {
@@ -682,9 +609,116 @@ sub _install_cperl {
 }
 
 
+### INTERNAL UTILITY ###
+# Usage      : _install_perl_ver()
+# Purpose    : installs Perl version required
+# Returns    : hash with flags
+# Parameters : ($param_href, $flags_href)
+# Throws     : 
+# Comments   : 4th part of install_perl() mode
+# See Also   : install_perl() mode
+sub _install_perl_ver {
+    die('_install_perl_ver() needs $param_href') unless @_ == 2;
+    my ($param_href, $flags_href) = @_;
+	my %flags = %{$flags_href};
+
+	#ask to choose which Perl to install
+	my $cmd_install;
+	if ($flags{perl_installed} == 0 and ($flags{plenv} == 1 or $flags{plenv_profile} == 1) ) {
+
+		#prompt for Perl version if not given on command prompt
+		if (!$param_href->{perl}) {
+			$param_href->{perl} = prompt ('Choose which Perl version you want to install>', '5.22.0');
+		}
+
+		#prompt for threads option if not given on command prompt
+		if (!$param_href->{threads}) {
+			$param_href->{threads} = prompt ('Do you want to install Perl with {usethreads} or without threads {nothreads}?>', 'nothreads');
+		}
+
+		#make install command
+		if ($param_href->{threads} eq 'nothreads') {
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc $param_href->{perl}"};
+		}
+		else {
+			$cmd_install = qq{\$SHELL -lc "plenv install -j 4 -Dcc=gcc -D usethreads $param_href->{perl}"};
+		}
+
+		#install Perl
+		my ($stdout_perl, $stderr_perl, $exit_perl) = _capture_output( $cmd_install, $param_href );
+		if ($exit_perl == 0) {
+			$flags{perl_installed} = 1;
+			print "Installed Perl-", "$param_href->{perl}\n";
+		
+			#finish installation, set perl as global
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			my $cmd_global = qq{\$SHELL -lc "plenv global $param_href->{perl}"};
+			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+			_exec_cmd ($cmd_global, $param_href, "Perl $param_href->{perl} set to global (through plenv global)");
+	
+			#set through %ENV if plenv global didn't work
+			if (defined $ENV{PLENV_VERSION}) {
+				if ($ENV{PLENV_VERSION} eq $param_href->{perl}) {
+					#print "Perl $param_href->{perl} set to global. Whoa:)\n";
+				}
+				else {
+					#set it yourself
+					$ENV{PLENV_VERSION} = $param_href->{perl};
+					print "Perl $param_href->{perl} set to global (ENV manipulation).\n";
+				}
+			}
+		}
+	}
 
 
+	return %flags;
+}
 
+
+### INTERNAL UTILITY ###
+# Usage      : _install_cpanm()
+# Purpose    : installs cpanm to Perl version just installed
+# Returns    : hash with flags
+# Parameters : ($param_href, $flags_href)
+# Throws     : 
+# Comments   : 4th part of install_perl() mode
+# See Also   : install_perl() mode
+sub _install_cpanm {
+    die('_install_cpanm() needs $param_href') unless @_ == 2;
+    my ($param_href, $flags_href) = @_;
+	my %flags = %{$flags_href};
+
+	#install cpanm to installed Perl (and not cperl)
+	$flags{cpanm} = 0;
+	if ($flags{perl_installed} == 1 and $param_href->{cperl} == 0) {
+		my $cmd_cpanm = q{$SHELL -lc "plenv install-cpanm"};
+		my ($stdout_cpanm, $stderr_cpanm, $exit_cpanm) = _capture_output( $cmd_cpanm, $param_href );
+		if ($exit_cpanm == 0) {
+			$flags{cpanm} = 1;
+			print "cpanm installed through plenv.\n";
+
+			# rehash after cpanm installation
+			my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+			_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+		}
+	}
+
+	#install cpanm to installed cperl because cperl has bug with plenv cpanm installation. At least cperl-5.22.1.
+	if ($flags{perl_installed} == 1 and $param_href->{cperl} == 1 and $flags{cpanm} == 0) {
+		my $cmd_cpan = q{$SHELL -lc "yes|perl -MCPAN -e \"CPAN::Shell->notest('install', 'App::cpanminus')\""};
+		my $exit_cperl_cpanm = _exec_cmd ($cmd_cpan, $param_href, "App::cpanminus install");
+		if ($exit_cperl_cpanm == 0) {
+			$flags{cpanm} = 1;
+			print "cpanm installed through cpan client for cperl.\n";
+		}
+
+		# rehash after cpanm installation
+		my $cmd_rehash = q{$SHELL -lc "plenv rehash"};
+		_exec_cmd ($cmd_rehash, $param_href, "plenv rehash");
+	}
+
+	return %flags;
+}
 
 
 
@@ -742,7 +776,7 @@ __END__
 
 =head1 NAME
 
-Perlinstall - is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you. If you have git and development tools you can skip sudo.
+Perlinstall - is installation script (modulino) that installs Perl (or cperl) using plenv. If you have sudo permissions it also installs git and "Development tools" for you. If you have git and development tools you can skip sudo.
 
 =head1 SYNOPSIS
 
@@ -791,31 +825,28 @@ Martin Sebastijan Šestak E<lt>msestak@irb.hrE<gt>
 
 =head1 EXAMPLE
 
- ./Perlinstall.pm --mode=install_perl
- Working without sudo (which is fine if you have git and essential build tools like gcc...).
+ ./Perlinstall.pm --mode=install_perl --perl=5.14.1 -t nothreads
+ RUNNING ACTION for mode: install_perl
+ Working without sudo, which is fine if you have git and essential build tools like gcc and make...).
  Great. You have git.
- Great. You have gcc. Continuing with plenv install.
- We have Perl 5.10.1 installed.
- plenv is not installed, installing now...
- plenv install success!
- Perl-Build is not installed, installing now...
- Perl-Build install success!
- export PATH success!
- plenv init success!
- sourcing .bash_profile success!
- We have sourced plenv 2.1.1-37-gb0945d5
- Choose which Perl version you want to install> [5.22.0] 
- Do you want to install Perl with {usethreads} or without threads {nothreads}?> [nothreads] 
- Installing 5.22.0 with nothreads.
- Perl 5.22.0 install success!
+ Great. You have gcc.
+ Great. You have make. Continuing with plenv install.
+ We have Perl 5.12.1 installed.
+ We have plenv 2.1.1-37-gb0945d5
+ Perl-Build is installed.
+ /home/msestak/.bash_profile is already set for plenv.
+ Installed Perl-5.14.1
  plenv rehash success!
- Perl 5.22.0 set to global (plenv global) success!
- We switched from 5.10.1 to newly installed 5.22.0
- cpanm install success!
+ Perl 5.14.1 set to global (through plenv global) success!
+ Perl 5.14.1 set to global (ENV manipulation).
+ We have Perl 5.14.1 installed.
+ We switched from 5.12.1 to newly installed 5.14.1
+ cpanm installed through plenv.
  plenv rehash success!
  To migrate modules from old Perl to new Perl run:
- plenv migrate-modules -n 5.10.1 5.22.0
+ plenv migrate-modules -n 5.12.1 5.14.1
+ TIME when finished: 180 sec
  Restarting shell to see new Perl...
-
+ 
 =cut
 

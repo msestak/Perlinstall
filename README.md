@@ -1,6 +1,6 @@
 # NAME
 
-Perlinstall - is installation script (modulino) that installs Perl using plenv. If you have sudo permissions it also installs git and "Development tools" for you. If you have git and development tools you can skip sudo.
+Perlinstall - is installation script (modulino) that installs Perl (or cperl) using plenv. If you have sudo permissions it also installs git and "Development tools" for you. If you have git and development tools you can skip sudo.
 
 # SYNOPSIS
 
@@ -49,28 +49,26 @@ Martin Sebastijan Šestak <msestak@irb.hr>
 
 # EXAMPLE
 
-    ./Perlinstall.pm --mode=install_perl
-    Working without sudo (which is fine if you have git and essential build tools like gcc...).
+    ./Perlinstall.pm --mode=install_perl --perl=5.14.1 -t nothreads
+    RUNNING ACTION for mode: install_perl
+    Working without sudo, which is fine if you have git and essential build tools like gcc and make...).
     Great. You have git.
-    Great. You have gcc. Continuing with plenv install.
-    We have Perl 5.10.1 installed.
-    plenv is not installed, installing now...
-    plenv install success!
-    Perl-Build is not installed, installing now...
-    Perl-Build install success!
-    export PATH success!
-    plenv init success!
-    sourcing .bash_profile success!
-    We have sourced plenv 2.1.1-37-gb0945d5
-    Choose which Perl version you want to install> [5.22.0] 
-    Do you want to install Perl with {usethreads} or without threads {nothreads}?> [nothreads] 
-    Installing 5.22.0 with nothreads.
-    Perl 5.22.0 install success!
+    Great. You have gcc.
+    Great. You have make. Continuing with plenv install.
+    We have Perl 5.12.1 installed.
+    We have plenv 2.1.1-37-gb0945d5
+    Perl-Build is installed.
+    /home/msestak/.bash_profile is already set for plenv.
+    Installed Perl-5.14.1
     plenv rehash success!
-    Perl 5.22.0 set to global (plenv global) success!
-    We switched from 5.10.1 to newly installed 5.22.0
-    cpanm install success!
+    Perl 5.14.1 set to global (through plenv global) success!
+    Perl 5.14.1 set to global (ENV manipulation).
+    We have Perl 5.14.1 installed.
+    We switched from 5.12.1 to newly installed 5.14.1
+    cpanm installed through plenv.
     plenv rehash success!
     To migrate modules from old Perl to new Perl run:
-    plenv migrate-modules -n 5.10.1 5.22.0
+    plenv migrate-modules -n 5.12.1 5.14.1
+    TIME when finished: 180 sec
     Restarting shell to see new Perl...
+    
