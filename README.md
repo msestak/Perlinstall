@@ -1,6 +1,6 @@
 # NAME
 
-Perlinstall - is installation script (modulino) that installs Perl (or cperl) using plenv. If you have sudo permissions it also installs git and "Development tools" for you. If you have git and development tools you can skip sudo.
+Perlinstall - is installation script (modulino) that installs Perl (or cperl) using plenv. It also installs cpanm with Perl you are installing. If you have sudo permissions it also installs git and your Linux distribution based "Development tools" for you. If you have git, gcc and make you can skip sudo.
 
 # SYNOPSIS
 
