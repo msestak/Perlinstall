@@ -52,6 +52,11 @@
       }
    },
    "release_status" : "unstable",
+   "resources" : {
+      "repository" : {
+         "url" : "https://mocnii@bitbucket.org/mocnii/perlinstall.git"
+      }
+   },
    "version" : "0.001",
    "x_contributors" : [
       "mocnii <msestak@irb.hr>"
