@@ -9,6 +9,7 @@ use Carp;
 use Getopt::Long;
 use Pod::Usage;
 use IPC::Open3;
+use Symbol;
 use Data::Dumper;
 use File::Copy;
 use Exporter qw/import/;
@@ -49,17 +50,8 @@ sub run {
     my $quiet      = $param_href->{quiet};
     my $sudo      = $param_href->{sudo};
     my @mode     = @{ $param_href->{mode} };
-	my $URL      = $param_href->{url};
-	my $OPT      = $param_href->{opt};
-    my $SANDBOX = $param_href->{sandbox};
     my $INFILE   = $param_href->{infile};
     my $OUT      = $param_href->{out};   #not used
-    my $HOST     = $param_href->{host};
-    my $DATABASE = $param_href->{database};   #not used
-    my $USER     = $param_href->{user};
-    my $PASSWORD = $param_href->{password};
-    my $PORT     = $param_href->{port};
-    my $SOCKET   = $param_href->{socket};
 
     #get dump of param_href if -v (verbose) flag is on (for debugging)
     print '$param_href = ', Dumper($param_href) if $verbose;
@@ -112,10 +104,10 @@ sub get_parameters_from_cmd {
     GetOptions(
         'help|h'        => \$cli{help},
         'man|m'         => \$cli{man},
-        'perl|c=s'      => \$cli{perl},       #Perl to install
+        'perl|p=s'      => \$cli{perl},       #Perl to install
         'cperl|c'       => \$cli{cperl},      #flag
         'threads|t=s'   => \$cli{threads},    #flag
-        'migrate|m'     => \$cli{migrate},    #flag
+        'migrate|mi'    => \$cli{migrate},    #flag
         'infile|if=s'   => \$cli{infile},
         'out|o=s'       => \$cli{out},
         'mode|mo=s{1,}' => \$cli{mode},       #accepts 1 or more arguments
@@ -166,6 +158,38 @@ sub get_parameters_from_cmd {
 # Comments   : second param is verbose flag (default off)
 # See Also   :
 sub _capture_output {
+    croak( '_capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
+    my ($cmd, $param_href) = @_;
+
+    my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : 0;   #default is silent
+    print "Report: COMMAND is: $cmd\n" if $verbose;
+
+	local $| = 1;   #autoflush
+    my ( $in, $out, $err );
+    open my ($in_fh),  '<', \$in;
+    open my ($out_fh), '>>', \$out;
+    open my ($err_fh), '>>', \$err;
+	
+	my $pid = open3($in_fh, $out_fh, $err_fh, $cmd);
+
+	my $stdout = $out;
+	my $stderr = $err;
+	$stdout = '' if !defined $stdout;
+	$stderr = '' if !defined $stderr;
+
+	waitpid( $pid, 0 ) or die "$!\n";
+	my $exit =  $? >> 8;
+
+    if ($verbose == 2) {
+        print 'STDOUT is: ', "$stdout", "\n", 'STDERR  is: ', "$stderr", "\n", 'EXIT   is: ', "$exit\n";
+    }
+
+    return  $stdout, $stderr, $exit;
+}
+
+
+
+sub _capture_output_old {
     croak( '_capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
     my ($cmd, $param_href) = @_;
 
