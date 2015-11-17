@@ -9,7 +9,6 @@ use Carp;
 use Getopt::Long;
 use Pod::Usage;
 use IPC::Open3;
-use Symbol;
 use Data::Dumper;
 use File::Copy;
 use Exporter qw/import/;
@@ -158,7 +157,7 @@ sub get_parameters_from_cmd {
 # Comments   : second param is verbose flag (default off)
 # See Also   :
 sub _capture_output {
-    croak( '_capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
+    croak( '_capture_output() needs a $cmd and options' ) unless (@_ ==  2);
     my ($cmd, $param_href) = @_;
 
     my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : 0;   #default is silent
@@ -170,15 +169,21 @@ sub _capture_output {
     open my ($out_fh), '>>', \$out;
     open my ($err_fh), '>>', \$err;
 	
-	my $pid = open3($in_fh, $out_fh, $err_fh, $cmd);
-
-	my $stdout = $out;
-	my $stderr = $err;
-	$stdout = '' if !defined $stdout;
-	$stderr = '' if !defined $stderr;
-
-	waitpid( $pid, 0 ) or die "$!\n";
-	my $exit =  $? >> 8;
+	#catch exceptions if program doesn't exist
+	my ($pid, $exit);
+	my $stdout = '';
+	my $stderr = '';
+	eval { $pid = open3($in_fh, $out_fh, $err_fh, $cmd); };
+	if ($@) {
+		$stdout = $stderr = '';
+		$exit   = 127;
+	}
+	else {
+		$stdout = $out;
+		$stderr = $err;
+		waitpid( $pid, 0 ) or die "$!\n";
+		$exit =  $? >> 8;
+	}
 
     if ($verbose == 2) {
         print 'STDOUT is: ', "$stdout", "\n", 'STDERR  is: ', "$stderr", "\n", 'EXIT   is: ', "$exit\n";
