@@ -4,7 +4,7 @@
       "d5"
    ],
    "dynamic_config" : 0,
-   "generated_by" : "Minilla/v2.5.0, CPAN::Meta::Converter version 2.143240",
+   "generated_by" : "Minilla/v3.0.4, CPAN::Meta::Converter version 2.150010",
    "license" : [
       "perl_5"
    ],
@@ -60,5 +60,6 @@
    "version" : "0.001",
    "x_contributors" : [
       "mocnii <msestak@irb.hr>"
-   ]
+   ],
+   "x_serialization_backend" : "JSON::PP version 2.27400"
 }

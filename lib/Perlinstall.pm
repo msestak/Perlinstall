@@ -184,13 +184,13 @@ sub _capture_output {
                        # line.
 	eval { $pid = open3($infh, $outfh, $errfh, $cmd); };
 	if ($@) {
-		print "now in faulty if:$@\n";
+		#print "now in faulty if:$@\n";
 		$stdout = '';
 		$stderr = '';
 		$exit   = 127;
 	}
 	else {
-		print "now in else:{$@}\n";
+		#print "now in else:{$@}\n";
 		# now our child is running, happily printing to 
         # its stdout and stderr (our $out_fh and $err_fh).
 
@@ -252,34 +252,6 @@ sub _capture_output {
 }
 
 
-
-sub _capture_output_old {
-    croak( '_capture_output() needs a $cmd' ) unless (@_ ==  2 or 1);
-    my ($cmd, $param_href) = @_;
-
-    my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : 0;   #default is silent
-    print "Report: COMMAND is: $cmd\n" if $verbose;
-
-	no warnings 'once';
-	my $pid = open3(\*WRITER, \*READER, \*ERROR, $cmd);
-	#if \*ERROR is 0, stderr goes to stdout
-
-	my $stdout = do { local $/; <READER> };
-	my $stderr = do { local $/; <ERROR> };
-	$stdout = '' if !defined $stdout;
-	$stderr = '' if !defined $stderr;
-
-	waitpid( $pid, 0 ) or die "$!\n";
-	my $exit =  $? >> 8;
-
-    if ($verbose == 2) {
-        print 'STDOUT is: ', "$stdout", "\n", 'STDERR  is: ', "$stderr", "\n", 'EXIT   is: ', "$exit\n";
-    }
-
-    return  $stdout, $stderr, $exit;
-}
-
-
 ### INTERNAL UTILITY ###
 # Usage      : _exec_cmd($cmd_git, $param_href);
 # Purpose    : accepts command, executes it and checks for success
@@ -325,7 +297,7 @@ sub install_perl {
 	my %flags = _install_prereq($param_href);
 
     #check existing Perl version
-	my $cmd_perl_old = q{perl -v};
+	my $cmd_perl_old = q{perl '-v'};
     $flags{old_perl} = _check_perl_version($param_href, $cmd_perl_old);
 
 	#check if plenv installed
@@ -384,6 +356,7 @@ sub install_perl {
 # Throws     : dies if not sudo permissions
 # Comments   : first part of install_perl() mode
 # See Also   : install_perl() mode
+#            : Percona also needs sudo yum install numactl
 sub _install_prereq {
     die('_install_prereq() needs $param_href') unless @_ == 1;
     my ($param_href) = @_;
@@ -413,14 +386,14 @@ sub _install_prereq {
 		print "Great. You have git.\n";
 	}
 	$flags{gcc} = 0;
-    my $cmd_check_gcc = 'gcc --version';
+    my $cmd_check_gcc = q{gcc '--version'};
     my ($stdout_check_gcc, $stderr_check_gcc, $exit_check_gcc) = _capture_output( $cmd_check_gcc, $param_href );
 	if ($exit_check_gcc == 0) {
 		$flags{gcc} = 1;
 		print "Great. You have gcc.\n";
 	}
 	$flags{make} = 0;
-    my $cmd_check_make = 'make --version';
+    my $cmd_check_make = q{make '--version'};
     my ($stdout_check_make, $stderr_check_make, $exit_check_make) = _capture_output( $cmd_check_make, $param_href );
 	if ($exit_check_make == 0) {
 		$flags{make} = 1;
@@ -445,7 +418,7 @@ sub _install_prereq {
 			if ($exit_tools == 0) { $flags{gcc} = 1; $flags{make} = 1;}
 		}
 		elsif ( ($param_href->{sudo} == 1) and ($flags{installer} eq 'apt-get') ) {
-			my $cmd_tools = q{sudo apt-get install build-essential};
+			my $cmd_tools = q{sudo apt-get install -y build-essential};
 			my $exit_tools = _exec_cmd($cmd_tools, $param_href, 'build-essential tools install');
 			if ($exit_tools == 0) { $flags{gcc} = 1; $flags{make} = 1;}
 		}
@@ -508,7 +481,7 @@ sub _install_plenv {
 
 	#check if plenv installed
 	$flags{plenv} = 0;
-    my $cmd_plenv_ver = 'plenv --version';
+    my $cmd_plenv_ver = q{plenv '--version'};
     my ($stdout_plenv_ver, $stderr_plenv_ver, $exit_plenv_ver) = _capture_output( $cmd_plenv_ver, $param_href );
     if ($exit_plenv_ver == 0) {
         print "We have $stdout_plenv_ver";
@@ -566,12 +539,12 @@ sub _install_plenv {
 		if ($flags{installer} eq 'yum') {   #on CentOS
 			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.bash_profile};
 			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.bash_profile};
-			$cmd_exec = q{source $HOME/.bash_profile};
+			$cmd_exec = q{source "$HOME/.bash_profile"};
 		}
 		else {   #on Ubuntu
 			$cmd_path = q{echo 'export PATH="$HOME/.plenv/bin:$PATH"' >> ~/.profile};
 			$cmd_eval = q{echo 'eval "$(plenv init -)"' >> ~/.profile};
-			$cmd_exec = q{source $HOME/.profile};
+			$cmd_exec = q{source "$HOME/.profile"};
 		}
 
     	_exec_cmd ($cmd_path, $param_href, 'export PATH');
@@ -883,7 +856,7 @@ Perlinstall - is installation script (modulino) that installs Perl (or cperl) us
 
 =head1 DESCRIPTION
 
- Perlinstall is installation script (built like modulino) that installs Perl using plenv. Prompts for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc.
+ Perlinstall is installation script (built like modulino) that installs Perl using plenv. Prompts for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc. Tested on Centos6 and Ubuntu14.
 
  --mode=install_perl                installs latest Perl with perlenv and cpanm
  --verbose, -v                      enable verbose output (can be used twice)

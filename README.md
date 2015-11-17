@@ -19,7 +19,7 @@ Perlinstall - is installation script (modulino) that installs Perl (or cperl) us
 
 # DESCRIPTION
 
-    Perlinstall is installation script (built like modulino) that installs Perl using plenv. Prompts for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc.
+    Perlinstall is installation script (built like modulino) that installs Perl using plenv. Prompts for perl version and to migrate Perl modules. If you have sudo permissions it will also install extra stuff like git, make and gcc. Tested on Centos6 and Ubuntu14.
 
     --mode=install_perl                installs latest Perl with perlenv and cpanm
     --verbose, -v                      enable verbose output (can be used twice)
