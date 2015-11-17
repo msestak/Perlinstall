@@ -9,6 +9,8 @@ use Carp;
 use Getopt::Long;
 use Pod::Usage;
 use IPC::Open3;
+use IO::Select;
+use Symbol;
 use Data::Dumper;
 use File::Copy;
 use Exporter qw/import/;
@@ -150,11 +152,12 @@ sub get_parameters_from_cmd {
 
 ### INTERNAL UTILITY ###
 # Usage      : my ($stdout, $stderr, $exit) = _capture_output( $cmd, $param_href );
-# Purpose    : accepts command, executes it, captures output and returns it in vars
+# Purpose    : accepts command, executes it, captures output, error and exit and returns it in vars
 # Returns    : STDOUT, STDERR and EXIT as vars
 # Parameters : ($cmd_to_execute)
 # Throws     : 
 # Comments   : second param is verbose flag (default off)
+#            : first set of filehandles is for open3 call and second for real capturing
 # See Also   :
 sub _capture_output {
     croak( '_capture_output() needs a $cmd and options' ) unless (@_ ==  2);
@@ -163,7 +166,7 @@ sub _capture_output {
     my $verbose = defined $param_href->{verbose}  ? $param_href->{verbose}  : 0;   #default is silent
     print "Report: COMMAND is: $cmd\n" if $verbose;
 
-	local $| = 1;   #autoflush
+	#filehandles for writing to string
     my ( $in, $out, $err );
     open my ($in_fh),  '<', \$in;
     open my ($out_fh), '>>', \$out;
@@ -173,17 +176,73 @@ sub _capture_output {
 	my ($pid, $exit);
 	my $stdout = '';
 	my $stderr = '';
-	eval { $pid = open3($in_fh, $out_fh, $err_fh, $cmd); };
+	my ($infh,$outfh,$errfh);   #filehandles for open3
+	# open3 doesn't open fh for error stream (therefore gensym)
+    $errfh = gensym(); # if you comment this line, $errfh will
+                       # never be initialized for you and you
+                       # will get a warning in the next print
+                       # line.
+	eval { $pid = open3($infh, $outfh, $errfh, $cmd); };
 	if ($@) {
-		$stdout = $stderr = '';
+		print "now in faulty if:$@\n";
+		$stdout = '';
+		$stderr = '';
 		$exit   = 127;
 	}
 	else {
+		print "now in else:{$@}\n";
+		# now our child is running, happily printing to 
+        # its stdout and stderr (our $out_fh and $err_fh).
+
+        my $sel = new IO::Select; # create a select object
+        $sel->add($outfh,$errfh); # and add the filehandles
+
+        # $sel->can_read will block until there is data available
+        # on one or more fhs
+		while(my @ready = $sel->can_read) {
+		    # now we have a list of all fhs that we can read from
+		    foreach my $fh (@ready) { # loop through them
+		        my $line;
+		        # read up to 4096 bytes from this fh.
+		        # if there is less than 4096 bytes, we'll only get
+		        # those available bytes and won't block.  If there 
+		        # is more than 4096 bytes, we'll only read 4096 and
+		        # wait for the next iteration through the loop to 
+		        # read the rest.
+		        my $len = sysread $fh, $line, 4096;
+		        if(not defined $len){
+		            # There was an error reading
+		            die "Error from child while sysreading from filehandle: $!\n";
+		        }
+				elsif ($len == 0){
+		            # Finished reading from this $fh because we read 0 bytes.
+					# Remove this handle from $sel.
+		            # We will exit the loop once we remove all filehandles ($out_fh and $err_fh).
+		            $sel->remove($fh);
+		            next;
+		        }
+				else { # we read data alright
+		            if($fh == $outfh) {
+		                print $out_fh $line;
+		            } elsif($fh == $errfh) {
+		                print $err_fh $line;
+		            } else {
+		                die "Shouldn't be here\n";
+		            }
+		        }
+		    }   # end foreach
+		}   #end while
+
+		close $out_fh;
+		close $err_fh;
+
 		$stdout = $out;
 		$stderr = $err;
+		$stdout = '' if !defined $stdout;
+		$stderr = '' if !defined $stderr;
 		waitpid( $pid, 0 ) or die "$!\n";
 		$exit =  $? >> 8;
-	}
+	}   #end else after exception
 
     if ($verbose == 2) {
         print 'STDOUT is: ', "$stdout", "\n", 'STDERR  is: ', "$stderr", "\n", 'EXIT   is: ', "$exit\n";
@@ -347,7 +406,7 @@ sub _install_prereq {
 
 	#install git, basic Development tools
 	$flags{git} = 0;
-    my $cmd_check_git = 'git --version';
+    my $cmd_check_git = q{git '--version'};
     my ($stdout_check_git, $stderr_check_git, $exit_check_git) = _capture_output( $cmd_check_git, $param_href );
 	if ($exit_check_git == 0) {
 		$flags{git} = 1;
